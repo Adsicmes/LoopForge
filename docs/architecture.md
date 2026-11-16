@@ -16,6 +16,6 @@ The platform keeps the upstream Go module name `agentflow`, package boundaries a
 | `migrations` | Explicit data migrations and optional public catalog |
 | `local` | Local workflows and host integrations; user guides live in `docs/local/` |
 
-The public edition adds account/password login and GitHub adapters. These feed the existing user, token, repository and delivery contracts; there is no separate public engine or in-memory production store. A remote repository identity beginning `github:` distinguishes GitHub owner/repository names from legacy tracker identities. The upstream `gongfengProjectId` JSON field carries this identity for compatibility.
+The public edition adds account/password login and GitHub adapters. These feed the existing user, token, repository and delivery contracts; there is no separate public engine or in-memory production store. A remote repository identity beginning `github:` distinguishes GitHub owner/repository names from legacy tracker identities; `codeup:` identifies Alibaba Cloud Yunxiao Codeup repositories. The upstream `gongfengProjectId` JSON field carries this identity for compatibility. `internal/yunxiao` talks to the Yunxiao OpenAPI for Codeup merge requests and Projex work items, while Codeup Git transport uses the existing SSH key path.
 
 The CLI's Classic and Portable workflow assets remain separate from each other and from platform role definitions. Sharing behavior contracts is preferable to copying runtime assets. No classic host bundle is required by a platform worker.

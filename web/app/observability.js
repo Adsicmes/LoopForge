@@ -1027,7 +1027,7 @@ function obsCountUp(el){
   };
   requestAnimationFrame(step);
 }
-function obsSourceLabel(s){return s==='gongfeng'?'工蜂':s==='tapd'?'TAPD':s==='local'?'本地':s==='github'?'GitHub':s||'—'}
+function obsSourceLabel(s){return s==='gongfeng'?'工蜂':s==='tapd'?'TAPD':s==='yunxiao'?'云效':s==='local'?'本地':s==='github'?'GitHub':s||'—'}
 function obsCategoryLabel(k){return ({requirement:'需求开发',bugfix:'Bug 修复',refactor:'技术优化',other:'其他'}[k])||k||'未分类'}
 function obsTraceLabel(t){return [t.origin==='external'?'外部 · '+t.workflowName:obsSourceLabel(t.issueSource||'local'),t.externalId||t.issueId||t.runId].filter(Boolean).join(' ')}
 function obsOverview(){

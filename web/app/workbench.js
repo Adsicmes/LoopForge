@@ -62,6 +62,13 @@ const CREDENTIAL_KINDS=[
     guide:[['打开 GitHub「Settings → Developer settings → Personal access tokens」','https://github.com/settings/tokens','前往 GitHub 申请个人访问令牌'],['新建令牌，为目标仓库授予 <code>Contents</code> 和 <code>Pull requests</code> 的读写权限'],['复制令牌粘贴到下方，保存前会自动校验权限']],
     placeholder:'请输入个人访问令牌（PAT）',hint:'保存前会先校验令牌有效性与权限',
     impact:'依赖私有仓库的 SOP 将无法克隆或推送仓库。'},
+  {key:'yunxiaoToken',group:'platform',name:'云效',short:'云效访问令牌',icon:'key',
+    use:'绑定云效 Codeup 仓库、创建合并请求与同步 Projex 工作项',
+    description:'阿里云云效个人访问令牌（PAT），用于 Codeup 合并请求和 Projex 工作项同步；Git 克隆和推送仍使用 Git SSH 密钥。',
+    guide:[['登录云效工作台，进入「个人设置 → 个人访问令牌」新建令牌'],['按最小授权勾选代码管理、项目协作的读写权限；只做同步时保留只读'],['复制令牌粘贴到下方；云效仓库请同时为 codeup.aliyun.com 配置 Git SSH 密钥']],
+    placeholder:'请输入云效个人访问令牌（PAT）',
+    hint:'令牌只用于云效 OpenAPI，不会写入仓库或 Git URL',
+    impact:'云效仓库的 MR 交付与 Projex 工作项同步将不可用。'},
   {key:'gitSshKey',group:'platform',name:'Git SSH',short:'Git SSH 密钥',icon:'key',
     use:'按 SSH 主机管理个人密钥，仓库自动匹配'},
   {key:'codeBuddyApiKey',group:'model',name:'CodeBuddy',short:'CodeBuddy API Key',logo:'codebuddy',
@@ -2035,6 +2042,6 @@ function renderDashboard(){
   const cfg=state.data.syncConfig||{},logs=state.data.syncLogs||[];
   const synced=knownTime(cfg.lastSyncAt),syncResult=logs[0]?.status==='success'?'成功':logs[0]?.status==='failed'?'失败':'';
   $('#dashFeedHint').textContent=synced?`最近同步 ${synced.toLocaleString()}${syncResult?` · ${syncResult}`:''}`:'从未同步';
-  const feed=logs.slice(0,8).map(l=>`<div class="tl-item"><div><b>${l.direction==='pull'?'拉取':'推送'} · ${l.source==='github'?'GitHub':l.source==='gongfeng'?'工蜂':l.source==='tapd'?'TAPD':escapeHTML(l.source||'')}</b> <span class="muted">${escapeHTML(l.message||l.action)}</span></div><div class="muted" style="font-size:10.5px;margin-top:2px">${new Date(l.startedAt).toLocaleString()} · ${l.status==='success'?'成功':`失败 ${escapeHTML(l.message||'')}`}</div></div>`).join('');
+  const feed=logs.slice(0,8).map(l=>`<div class="tl-item"><div><b>${l.direction==='pull'?'拉取':'推送'} · ${l.source==='github'?'GitHub':l.source==='gongfeng'?'工蜂':l.source==='yunxiao'?'云效':l.source==='tapd'?'TAPD':escapeHTML(l.source||'')}</b> <span class="muted">${escapeHTML(l.message||l.action)}</span></div><div class="muted" style="font-size:10.5px;margin-top:2px">${new Date(l.startedAt).toLocaleString()} · ${l.status==='success'?'成功':`失败 ${escapeHTML(l.message||'')}`}</div></div>`).join('');
   $('#dashFeed').innerHTML=feed||'<div class="tl-item"><div class="muted">尚未同步。绑定 GitHub 仓库后，可在「需求列表」里点击「同步 GitHub」。</div></div>';
 }

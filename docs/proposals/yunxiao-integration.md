@@ -1,9 +1,11 @@
 # 阿里云云效（Codeup + Projex）接入方案
 
-> 状态：设计建议，待评审  
+> 状态：P0–P2 核心已实现，P3 待评估  
 > 基线：`main@00d4f17`（2026-11-16）  
 > 目标读者：负责 `internal/domain`、`internal/tracker`、`internal/engine`、`internal/httpapi`、`internal/repo` 与前端仓库配置的开发者  
 > 结论先行：**以云效 OpenAPI 作为平台自身的确定性同步通道，以官方云效 MCP 作为 Agent 的补充工具入口；先打通 Codeup 仓库 + MR 与 Projex 工作项，再评估 Flow 流水线。**
+>
+> 实施记录：P0（provider/URL/MR 解析、OpenAPI 客户端、云效 PAT 与脱敏）和 P1/P2 的核心后端（Codeup 仓库校验/MR 交付、Projex 拉取/创建/评论、来源过滤）已落地；Codeup Git 传输限定为 SSH，PAT 只走 OpenAPI。前端仓库表单、个人凭据、来源标签与同步配置已接入口；真实云效环境的域名、权限点和 Projex URL 模板仍需按第 9 节核对。
 
 ---
 
@@ -319,7 +321,7 @@ func (c *Client) ListOrganizations(ctx) ([]Organization, error)
   - `UNDER_DEV` / `UNDER_REVIEW` / `TO_BE_MERGED` → `opened`
   - `MERGED` → `merged`
   - `CLOSED` → `closed`
-- `mergedAt`：OpenAPI 的 `GetChangeRequest` 没有稳定的 `mergedAt` 字段；MVP 不伪造时间，`MergedAt` 留零，交付分类仍按 `status` 工作。若后续需要精确合并时间，再通过 `mergedRevision` 查提交时间（P3）。
+- `mergedAt`：OpenAPI 的 `GetChangeRequest` 没有稳定的 `mergedAt` 字段；实现用状态为 `MERGED` 时的远端 `updateTime` 作为近似值，保证交付分析不会因零时间跳过云效 MR。该时间不是严格的合并时刻；P3 再通过 `mergedRevision` 查提交时间。
 
 ### 4.6 Projex 工作项
 
@@ -392,7 +394,7 @@ REJECTED / 已拒绝 / 取消       -> cancelled
 **定时任务**
 
 - `ScheduleJob.Source` 增加 `yunxiao`；`NormalizeScheduleSource` 接受它。
-- `PullScheduleJob` 增加 case：遍历配置了 `YunxiaoSpaceID` 的项目，调用 `pullYunxiaoWorkitems`。
+- `PullScheduleJob` 增加 case：遍历配置了 `YunxiaoSpaceID` 的项目，调用 `pullYunxiaoWorkitems`。注意：当前生产路径并不调用 `PullScheduleJob`，真实拉取由 `PullAll`（自动同步/手动同步）完成；定时任务的 `Source=yunxiao` 只负责过滤已同步工作项。若未来要让每个定时任务执行前拉取，必须在 `internal/schedule` 显式接入并单列回归。
 - `web` 与 `chatbot` 的来源单选/标签增加“云效”。
 
 ### 4.7 Git 传输与 SSH
@@ -425,7 +427,7 @@ for _, project := range store.Projects() {
 
 与 TAPD 一样，云效按项目池拉取，不依赖仓库。日志 `SyncLog.Source = "yunxiao"`，`Action = "sync_issues"`，失败信息包含可操作的认证/权限提示。
 
-`PullScheduleJob` 的 `yunxiao` case 只拉取指定项目（`job.ProjectID`）的空间；如果项目未配置 `YunxiaoSpaceID`，返回明确错误。
+`PullScheduleJob` 的 `yunxiao` case 只拉取指定项目（`job.ProjectID`）的空间；如果项目未配置 `YunxiaoSpaceID`，返回明确错误。该函数目前仅测试调用，生产拉取仍由 `PullAll` 的云效项目池完成；不要把定时任务验收建立在这条死代码路径上。
 
 ### 4.9 交付状态与分析
 

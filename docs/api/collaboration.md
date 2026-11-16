@@ -47,7 +47,7 @@ curl -u "$AGENTFLOW_USER:$AGENTFLOW_PASS" -X PUT \
 
 ## 仓库
 
-`Repository` 主要字段为 `id`、`projectId`、`provider`、`name`、`gongfengProjectId`、`webUrl`、`cloneUrl`、`defaultBranch`、`localPath`、流水线配置和 `integrateBranch`。
+`Repository` 主要字段为 `id`、`projectId`、`provider`、`name`、`gongfengProjectId`、`yunxiaoRepoId`、`webUrl`、`cloneUrl`、`defaultBranch`、`localPath`、流水线配置和 `integrateBranch`。`provider` 支持 `github`、`gongfeng`、`ssh`、`yunxiao`；云效仓库的 `gongfengProjectId` 形如 `codeup:{org}/{path}`。
 
 ### `GET /api/repositories`
 
@@ -59,7 +59,7 @@ curl -u "$AGENTFLOW_USER:$AGENTFLOW_PASS" -X PUT \
 
 ### `POST|PUT /api/repositories`
 
-新建或按 `id` 更新。`projectId`、`name`、`gongfengProjectId` 必填；`provider` 默认且只能是 `gongfeng`；`defaultBranch` 默认 `main`；`id` 为空时服务生成。更新时空 token 保留旧值，`gitTokenClear=true` 清除。成功 `200` 返回脱敏后的仓库；校验失败 `400`。
+新建或按 `id` 更新。`projectId`、`name`、`gongfengProjectId` 必填；`provider` 默认 `gongfeng`，可选 `github`、`ssh`、`yunxiao`；`defaultBranch` 默认 `main`（云效默认 `master`）；`id` 为空时服务生成。更新时空 token 保留旧值，`gitTokenClear=true` 清除。云效仓库使用 SSH 克隆地址，PAT 只用于 OpenAPI；保存后可调用 `POST /api/repositories/{id}/yunxiao/verify` 回填数字仓库 ID、默认分支与克隆地址。成功 `200` 返回脱敏后的仓库；校验失败 `400`。
 
 ```bash
 curl -u "$AGENTFLOW_USER:$AGENTFLOW_PASS" -X POST \
@@ -80,7 +80,7 @@ curl -u "$AGENTFLOW_USER:$AGENTFLOW_PASS" -X POST \
 - `status`：`backlog|todo|in_progress|in_review|done|blocked|cancelled`
 - `priority`、`kind`（`requirement|issue`）、`assigneeType`、`assigneeId`
 - `workflowId`、`repositoryId`、`repositoryIds`、`baseBranch`、`repositoryBranches`、`latestTaskId`
-- `source`（`local|gongfeng|tapd`）、`externalRef`
+- `source`（`local|gongfeng|tapd|yunxiao`）、`externalRef`
 - `clarification`：`summary`、`status`（`analyzing|in_progress|ready`；历史数据可能是 `needs_user`）、`history`、`questions`、写回字段。澄清是可选步骤，不打分、不自动开始，也不阻止派发 SOP。
 - 交付字段 `deliveryState`、`deliveryMrUrl`、`deliveryMrState`、`deliveryMrs`、`deliveryUpdatedAt`。`deliveryMrs` 每个仓库一项（`repositoryId`、`repository`、`project`、`iid`、`url`、`state`、`targetBranch`），由 SOP 成功时按仓库工作分支向工蜂查询 MR 得出，查不到才回退到 MR 类产物里同项目的链接；`deliveryMrUrl` 为第一项，`deliveryMrState` 为聚合状态（全部合入默认分支才是 `merged`）。
 
@@ -116,7 +116,7 @@ curl -u "$AGENTFLOW_USER:$AGENTFLOW_PASS" -X POST \
 
 多仓库用 `repositoryBranches` 按仓库 ID 分别指定已有功能分支，例如 `{"repositoryIds":["api","web"],"repositoryBranches":{"api":"feature/api","web":"feature/web"}}`。该映射优先于 `baseBranch`；未指定或留空的仓库从各自配置的主分支新建工作分支。继续已有分支时，MR 仍以该仓库配置的主分支为目标。映射中的仓库必须已绑定，且不能直接在主分支或集成分支上开发。更新或重新导入 TAPD 时省略映射会保留仍绑定仓库的分支，显式 `{}` 清空全部选择；修改任一仓库分支会重置代码澄清会话并保留业务回答。
 
-新 Issue 必须绑定外部 tracker：若请求未带有效 `source/externalRef`，`syncTarget` 必须为 `gongfeng` 或 `tapd`，服务会同步创建后保存；工蜂还要求仓库。更新时多个空字段会继承原值。成功 `200` 返回 Issue；校验/同步错误通常为 `400`。
+新 Issue 必须绑定外部 tracker：若请求未带有效 `source/externalRef`，`syncTarget` 必须为 `gongfeng`、`tapd` 或 `yunxiao`，服务会同步创建后保存；工蜂要求仓库，云效要求项目配置空间与工作项类型。更新时多个空字段会继承原值。成功 `200` 返回 Issue；校验/同步错误通常为 `400`。
 
 ### `GET /api/issues/{issueId}`
 

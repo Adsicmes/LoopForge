@@ -106,6 +106,10 @@ Repositories automatically use the current user's key for their SSH host and por
 
 SSH handles clone, fetch and push. A conversation delivery returns the branch and commit SHA. You can optionally add a repository web URL to open the host and create a PR/MR manually. Issue import and PR/MR automation need a hosting API credential. To automate those actions, add a hosting-specific MCP in **Settings → Assets → MCP**, give it its own scoped token, and attach it to the relevant agent or workflow. [CNB does not support Git SSH](https://docs.cnb.cool/en/guide/git-access.html); it uses HTTPS with a CNB access token, which is outside this integration.
 
+### Alibaba Cloud Yunxiao (Codeup + Projex)
+
+Set `yunxiaoApiBase` in the platform sync configuration to `https://openapi-rdc.aliyuncs.com` (central station) or the organization's Region domain, and set `yunxiaoOrganizationId` for the central station. Each user creates a Yunxiao personal access token under **Personal settings → Yunxiao access token**; the token needs code-management access for Codeup merge requests and project-collaboration access for Projex work items. Codeup Git transport uses the existing Git SSH path: add a personal key for `codeup.aliyun.com` (or the Region SSH host) and paste an SSH clone URL when binding the repository. A web URL is converted to an SSH clone URL on save; PATs are never used as Git HTTP passwords. Project settings hold the Projex space ID, work item type IDs and optional status mapping. Use the repository's **Verify Yunxiao repository** action to resolve the numeric Codeup repository id after configuring a token.
+
 ## Accounts
 
 The first account created in the browser becomes the platform administrator. After that, anyone who can reach the login page may sign up as a regular user while `AGENTFLOW_ALLOW_SIGNUP` is `true` (the default). Registered users can create requirements and run SOPs on your workers, so set `AGENTFLOW_ALLOW_SIGNUP=false` for any installation reachable from untrusted networks and create accounts explicitly instead.

@@ -53,7 +53,7 @@ const STEPS = [
   {
     id: "project",
     title: "项目与仓库",
-    desc: "选择或新建项目，绑定 GitHub 仓库",
+    desc: "选择或新建项目，绑定代码仓库",
   },
   {
     id: "workflow",
@@ -578,13 +578,82 @@ function parseGitHubRepo(raw) {
   };
 }
 
-// SSH preview first (it leaves github.com to the GitHub parser, matching the
-// server); self-hosted legacy repositories keep the git.example.com form.
+// Codeup repositories use the Yunxiao API adapter with SSH transport. The
+// shared SSH preview intentionally returns null for Codeup hosts so this parser
+// can keep provider=yunxiao instead of collapsing to generic SSH.
+export function parseYunxiaoRepo(raw) {
+  let value = String(raw || "")
+    .trim()
+    .replace(/^git\s+clone\s+/i, "")
+    .replace(/^['"]+|['"]+$/g, "");
+  if (!value || /[\s"'<>()\\]/.test(value)) return null;
+  let host = "codeup.aliyun.com";
+  let path = "";
+  let ssh = false;
+  let match;
+  if (/^codeup:/i.test(value)) {
+    path = value.replace(/^codeup:/i, "");
+  } else if ((match = /^git@([^:/]+):(.+)$/i.exec(value))) {
+    host = match[1].toLowerCase();
+    path = match[2];
+    ssh = true;
+  } else if ((match = /^ssh:\/\/(?:git@)?([^/:]+)(?::\d+)?\/(.+)$/i.exec(value))) {
+    host = match[1].toLowerCase();
+    path = match[2];
+    ssh = true;
+  } else {
+    value = value.replace(/^https?:\/\//i, "");
+    const slash = value.indexOf("/");
+    if (slash < 0) return null;
+    host = value.slice(0, slash).toLowerCase();
+    path = value.slice(slash + 1);
+  }
+  if (!(host === "codeup.aliyun.com" || host.endsWith(".devops.aliyuncs.com"))) return null;
+  path = path.replace(/^\/+|\/+$/g, "").replace(/\.git$/i, "");
+  for (const marker of [
+    "/-/",
+    "/change/",
+    "/tree/",
+    "/blob/",
+    "/commit/",
+    "/commits/",
+    "/merge_requests/",
+    "/issues/",
+    "/pulls/",
+    "/pipelines/",
+  ]) {
+    const index = path.indexOf(marker);
+    if (index >= 0) path = path.slice(0, index);
+  }
+  path = path.replace(/^\/+|\/+$/g, "");
+  const parts = path.split("/");
+  if (
+    parts.length < 2 ||
+    path.includes("..") ||
+    parts.some((segment) => !segment || /[\s\\?#%]/.test(segment))
+  )
+    return null;
+  const name = parts[parts.length - 1];
+  return {
+    project: `codeup:${path}`,
+    provider: "yunxiao",
+    name,
+    host: `${host}:22`,
+    webUrl: `https://${host}/${path}`,
+    cloneUrl: ssh ? `git@${host}:${path}.git` : `https://${host}/${path}.git`,
+  };
+}
+
+// SSH preview first (it leaves github.com and Codeup hosts to their own
+// parsers, matching the server); self-hosted legacy repositories keep the
+// git.example.com form.
 export function parseGongfengRepo(raw) {
   const sshInfo = globalThis.LoopForgeGitSSH(raw);
   if (sshInfo) return sshInfo;
   const github = parseGitHubRepo(raw);
   if (github) return github;
+  const yunxiao = parseYunxiaoRepo(raw);
+  if (yunxiao) return yunxiao;
   const original = String(raw || "")
     .trim()
     .replace(/^['"]+|['"]+$/g, "");
@@ -1320,7 +1389,7 @@ export default function QuickAccessWizard({
       }
       if (bindRepoNow && repoUrl.trim() && !parsedRepo) {
         setError(
-          "请输入 GitHub 仓库链接或 Git SSH 克隆地址。CNB 只支持 HTTPS + 访问令牌。",
+          "请输入 GitHub、云效 Codeup 仓库链接或 Git SSH 克隆地址。CNB 只支持 HTTPS + 访问令牌。",
         );
         return;
       }
@@ -1509,7 +1578,14 @@ export default function QuickAccessWizard({
         repository: boundRepo,
         workflow: provisionedWorkflow || activeWorkflow,
         rolesCount: roles.length,
-        gitReady: Boolean(boundRepo?.provider === "ssh" ? hasSSHKey(parseGongfengRepo(boundRepo.cloneUrl)) : latestUser?.gitTokenConfigured),
+        gitReady: Boolean(
+          boundRepo?.provider === "ssh"
+            ? hasSSHKey(parseGongfengRepo(boundRepo.cloneUrl))
+            : boundRepo?.provider === "yunxiao"
+              ? latestUser?.yunxiaoTokenConfigured &&
+                hasSSHKey(parseGongfengRepo(boundRepo.cloneUrl))
+              : latestUser?.gitTokenConfigured,
+        ),
         codeBuddyReady: Boolean(
           latestUser?.codeBuddyApiKeyConfigured ||
             storedUser?.codeBuddyApiKeyConfigured,
@@ -1684,7 +1760,11 @@ export default function QuickAccessWizard({
                             size={14}
                           />
                           <span>
-                            {completedSummary?.repository?.provider === "ssh" ? "Git SSH 访问：" : "GitHub 访问："}
+                            {completedSummary?.repository?.provider === "ssh"
+                              ? "Git SSH 访问："
+                              : completedSummary?.repository?.provider === "yunxiao"
+                                ? "云效访问："
+                                : "GitHub 访问："}
                             {completedSummary?.gitReady
                               ? "已就绪"
                               : "未配置，克隆/推送私有仓库前可在个人配置补齐"}
@@ -1817,7 +1897,7 @@ export default function QuickAccessWizard({
                       <section className="qa-cred-card">
                         <header className="qa-cred-head">
                           <div>
-                            <strong>GitHub 代码仓库授权</strong>
+                            <strong>代码仓库授权</strong>
                             <span>
                               用于克隆私有仓库、创建分支、推送代码与发起 PR
                             </span>
@@ -1827,6 +1907,7 @@ export default function QuickAccessWizard({
                         <div className="qa-cred-body">
                           <button type="button" className="qa-btn qa-btn-primary qa-btn-sm" onClick={() => openCredentialSettings("gitToken")}>
                             {storedUser?.gitTokenConfigured ? "管理 GitHub 授权" : "连接 GitHub"}
+                            {storedUser?.yunxiaoTokenConfigured ? " · 云效已配置" : ""}
                           </button>
                           <p className="qa-hint">在个人配置中完成授权，返回后继续；无需手动复制令牌。</p>
                           <p className="qa-hint">GitLab 等 SSH 仓库：<button type="button" className="qa-link-btn" onClick={() => openCredentialSettings("gitSshKey")}>{hasSSHKeys ? "管理 Git SSH 密钥" : "配置 Git SSH 密钥"}</button></p>
@@ -2100,7 +2181,7 @@ export default function QuickAccessWizard({
                                   ? "旧项目可直接追加新仓库，复用已有流程与角色；留空则沿用现有仓库"
                                   : "沿用项目现有仓库与流程"
                                 : bindRepoNow
-                                  ? "粘贴 GitHub 链接或 Git SSH 地址，自动设为项目默认仓库"
+                                  ? "粘贴 GitHub / 云效 Codeup 链接或 Git SSH 地址，自动设为项目默认仓库"
                                   : "已跳过，可在派发需求或项目配置中再绑定"}
                             </span>
                           </div>
@@ -2157,7 +2238,7 @@ export default function QuickAccessWizard({
                                     {projectMode === "existing" &&
                                     projectRepos.length
                                       ? "新增仓库地址（可选）"
-                                      : "GitHub 链接或 Git SSH 地址"}
+                                      : "GitHub / 云效 Codeup 链接或 Git SSH 地址"}
                                   </span>
                                   <input
                                     className="qa-input qa-mono"
@@ -2204,7 +2285,7 @@ export default function QuickAccessWizard({
                                 </p>
                               ) : (
                                 <p key="help" className="qa-hint">
-                                  支持 GitHub 链接或 Git SSH 地址，例如 <code>git@gitlab.com:group/repo.git</code>。
+                                  支持 GitHub / 云效 Codeup 链接或 Git SSH 地址，例如 <code>git@gitlab.com:group/repo.git</code>。
                                 </p>
                               )}
                               {selectedSSHRepo?.provider === "ssh" && sshKeysLoaded && !sshReady ? (

@@ -8,7 +8,7 @@ This repository contains the self-hosted platform and LoopForge Local. Detailed 
 | Web workspace and navigation | Upstream master layout |
 | Identity | Local password accounts; explicit account provisioning |
 | Administrators | No embedded employee allowlist; explicit grants/configuration |
-| Repository hosting | GitHub reference normalization, Issue import, PR discovery/merge/state refresh |
+| Repository hosting | GitHub reference normalization, Issue import, PR discovery/merge/state refresh; optional Alibaba Cloud Yunxiao Codeup repositories and Projex work items through the official OpenAPI |
 | MCP | Explicit installation; public GitHub entry; actor-scoped token binding |
 | Catalog | Public backend/frontend/product/bug-fix definitions; real script approval demo |
 | Model defaults | CLI default and operator-configured model list; CodeBuddy/Codex/Claude selection in Main Bot and SOP roles, actor-scoped credentials |

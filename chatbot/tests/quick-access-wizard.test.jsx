@@ -94,6 +94,23 @@ describe("QuickAccessWizard", () => {
     expect(parseGongfengRepo("git@git.example.com:team/repo.git")?.provider).toBe("ssh");
     expect(parseGongfengRepo("https://git.example.com/team/repo/-/tree/main")?.name).toBe("repo");
     expect(parseGongfengRepo("https://example.com/team/repo")).toBeNull();
+    expect(parseGongfengRepo("https://codeup.aliyun.com/acme/group/repo/-/tree/master")).toMatchObject({
+      provider: "yunxiao",
+      project: "codeup:acme/group/repo",
+      name: "repo",
+      webUrl: "https://codeup.aliyun.com/acme/group/repo",
+      cloneUrl: "https://codeup.aliyun.com/acme/group/repo.git",
+    });
+    expect(parseGongfengRepo("git@codeup.aliyun.com:acme/group/repo.git")).toMatchObject({
+      provider: "yunxiao",
+      project: "codeup:acme/group/repo",
+      cloneUrl: "git@codeup.aliyun.com:acme/group/repo.git",
+    });
+    expect(parseGongfengRepo("https://acme.devops.aliyuncs.com/acme/group/repo/change/7")).toMatchObject({
+      provider: "yunxiao",
+      project: "codeup:acme/group/repo",
+    });
+    expect(parseGongfengRepo("https://codeup.aliyun.com")).toBeNull();
     expect(parseGongfengRepo("")).toBeNull();
   });
 

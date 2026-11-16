@@ -1,8 +1,8 @@
-# 工蜂与 TAPD 同步 API
+# 工蜂、TAPD 与云效同步 API
 
 认证和通用状态码见 [README](README.md)。同步服务使用注册表中的 MCP Server 和项目/仓库配置访问外部系统。
 
-首次导入工作项时，按工蜂 / TAPD 的状态初始化平台需求状态。已有需求再次同步（自动、手动、定时任务拉取或单条重新同步）时，保留平台状态、关闭来源与自动执行状态，只刷新外部内容和 `externalRef` 中的原始状态及同步时间。外部关闭仍通过原始状态阻止执行，但不会覆盖已有需求的平台状态；外部重新打开也不会自动重开平台需求。
+首次导入工作项时，按工蜂 / TAPD / 云效的状态初始化平台需求状态。已有需求再次同步（自动、手动、定时任务拉取或单条重新同步）时，保留平台状态、关闭来源与自动执行状态，只刷新外部内容和 `externalRef` 中的原始状态及同步时间。外部关闭仍通过原始状态阻止执行，但不会覆盖已有需求的平台状态；外部重新打开也不会自动重开平台需求。
 
 TAPD 需求和任务以处理人 `owner` 作为平台责任人，缺陷以 `current_owner` 为准。多人字段只取第一个非空人员，按平台登录名或中文名匹配；匹配不到时，手动导入使用当前操作人兜底，自动同步使用项目 Owner 兜底。已有工作项保留平台责任人，仅在责任人为空时按上述规则补齐。
 
@@ -18,6 +18,9 @@ TAPD 需求和任务以处理人 `owner` 作为平台责任人，缺陷以 `curr
   "tapdWorkspaceId":"123",
   "tapdIterationId":"456",
   "tapdMcpUrl":"https://...",
+  "yunxiaoApiBase":"https://openapi-rdc.aliyuncs.com",
+  "yunxiaoOrganizationId":"60d54f3daccf2bbd6659f3ad",
+  "yunxiaoMcpUrl":"https://openapi-rdc.aliyuncs.com/ai/mcp",
   "autoSyncEnabled":true,
   "autoSyncIntervalSec":300,
   "lastSyncAt":"2026-09-02T12:00:00Z",
@@ -114,7 +117,7 @@ curl -u "$AGENTFLOW_USER:$AGENTFLOW_PASS" \
 ```
 
 - `issueId`、`target` 必填。
-- `target` 只能为 `gongfeng|tapd`。
+- `target` 只能为 `gongfeng|tapd|yunxiao`。云效目标要求项目已配置 `yunxiaoSpaceId` 和对应工作项类型。
 - 推送工蜂时，Issue 未绑定仓库会尝试继承项目默认仓库；最终仍需有效的工蜂仓库配置。
 - 调用前会重新加载 MCP 认证配置。
 
@@ -131,6 +134,6 @@ curl -u "$AGENTFLOW_USER:$AGENTFLOW_PASS" -X POST \
 
 ## 与定时任务的关系
 
-自动同步配置控制周期性 pull；`/api/schedule-jobs` 则用于按工蜂/TAPD 来源拉取候选项并派发指定 SOP，两者不是同一任务模型。定时任务接口见 [编排与运行 API](orchestration.md)。
+自动同步配置控制周期性 pull；`/api/schedule-jobs` 则用于按工蜂/TAPD/云效来源过滤候选项并派发指定 SOP，两者不是同一任务模型。云效工作项由项目上的 `yunxiaoSpaceId` 决定拉取范围。定时任务接口见 [编排与运行 API](orchestration.md)。
 
 同步接口没有 SSE、文件下载或分页端点。外部 MCP 认证、内部 Worker signals、OTLP、实例 lease 和沙箱回收均不属于本页公共 API。

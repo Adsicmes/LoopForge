@@ -3095,7 +3095,7 @@ paths:
                   type: string
                 target:
                   type: string
-                  enum: [gongfeng, tapd]
+                  enum: [gongfeng, tapd, yunxiao]
       responses:
         "200":
           $ref: "#/components/responses/Issue"
@@ -3626,7 +3626,7 @@ components:
                 properties:
                   syncTarget:
                     type: string
-                    enum: [gongfeng, tapd]
+                    enum: [gongfeng, tapd, yunxiao]
     ChatClarify:
       required: true
       content:
@@ -4190,6 +4190,20 @@ components:
           type: string
         tapdIterationId:
           type: string
+        yunxiaoSpaceId:
+          type: string
+        yunxiaoSprintId:
+          type: string
+        yunxiaoWorkItemTypes:
+          type: object
+          additionalProperties: {type: string}
+          description: Projex work item type ids keyed by Req/Bug/Task
+        yunxiaoStatusMap:
+          type: object
+          additionalProperties: {type: string}
+          description: Projex status id/name to local status mapping
+        yunxiaoDefaultAssigneeId:
+          type: string
         createdAt:
           type: string
           format: date-time
@@ -4269,14 +4283,14 @@ components:
         id: {type: string}
         projectId: {type: string}
         name: {type: string}
-        repoUrl: {type: string, description: GitHub web/SSH/clone URL; derives name and repository identity}
+        repoUrl: {type: string, description: GitHub/Codeup web or SSH clone URL; derives name and repository identity}
         url: {type: string, description: Alias of repoUrl}
         webUrl: {type: string}
         cloneUrl: {type: string}
         gongfengProjectId: {type: string, description: Legacy wire field for repository identity; GitHub uses github:owner/repo. Prefer repoUrl.}
         defaultBranch: {type: string}
         integrateBranch: {type: string}
-        provider: {type: string, description: GitHub is inferred from repoUrl; legacy provider values remain compatible, example: github}
+        provider: {type: string, enum: [github, gongfeng, ssh, yunxiao], description: Inferred from repoUrl; yunxiao denotes Alibaba Cloud Codeup.}
         pipelineProjectId: {type: integer}
         pipelineDefId: {type: integer}
     Repository:
@@ -4295,6 +4309,9 @@ components:
           type: string
         gongfengProjectId:
           type: string
+        yunxiaoRepoId:
+          type: integer
+          description: Codeup numeric repository id, resolved by the verify endpoint
         webUrl:
           type: string
           format: uri
@@ -4456,7 +4473,7 @@ components:
           $ref: "#/components/schemas/ClarificationAssessment"
         source:
           type: string
-          enum: [local, gongfeng, tapd]
+          enum: [local, gongfeng, tapd, yunxiao]
         externalRef:
           $ref: "#/components/schemas/ExternalRef"
         createdAt:
@@ -5152,6 +5169,12 @@ components:
           type: string
         tapdMcpUrl:
           type: string
+        yunxiaoApiBase:
+          type: string
+        yunxiaoOrganizationId:
+          type: string
+        yunxiaoMcpUrl:
+          type: string
         autoSyncEnabled:
           type: boolean
         autoSyncIntervalSec:
@@ -5210,8 +5233,8 @@ components:
           type: string
         source:
           type: string
-          enum: [gongfeng, tapd]
-          description: Compatibility field; jobs no longer pull TAPD/Gongfeng themselves.
+          enum: [github, gongfeng, tapd, yunxiao]
+          description: Compatibility field; jobs no longer pull TAPD/Gongfeng/Yunxiao themselves.
         tapdWorkspaceId:
           type: string
         tapdIterationId:

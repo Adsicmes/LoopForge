@@ -6,6 +6,7 @@ export const CREDENTIALS = {
   codexApiKey: "Codex API Key",
   claudeCodeApiKey: "Claude Code API Key",
   gitToken: "GitHub Git Token",
+  yunxiaoToken: "云效访问令牌",
   gitSshKey: "Git SSH 密钥",
 };
 
@@ -103,6 +104,15 @@ export const CREDENTIAL_GUIDES = {
       "回到这里点「重试节点」",
     ],
   },
+  yunxiaoToken: {
+    url: "/#/settings",
+    link: "配置云效访问令牌",
+    steps: [
+      "到「个人配置 → 云效访问令牌」粘贴云效 PAT",
+      "为 codeup.aliyun.com 配置 Git SSH 密钥；Codeup 仓库的克隆和推送走 SSH",
+      "回到这里点「重试节点」",
+    ],
+  },
   codeBuddyApiKey: {
     url: CODEBUDDY_ENVIRONMENTS[0].keyUrl,
     link: "打开 CodeBuddy 创建 Key",
@@ -147,6 +157,10 @@ const RULES = [
   [
     "gitSshKey",
     /Git SSH (?:密钥|私钥)/i,
+  ],
+  [
+    "yunxiaoToken",
+    /云效[^。\n]{0,20}(令牌|PAT)|Yunxiao[^。\n]{0,20}(token|PAT)|Codeup[^。\n]{0,20}(令牌|token)/i,
   ],
   [
     "gitToken",
