@@ -5,6 +5,8 @@ import (
 	"agentflow/internal/gitwork"
 	"context"
 	"fmt"
+	"net/url"
+	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -196,16 +198,43 @@ func integrateMRTitle(r domain.Run, rc domain.RepositoryContext, work, integrate
 	return fmt.Sprintf("LoopForge: %s → %s", label, integrate)
 }
 
+// runLink returns a clickable platform link for a run when the deployment knows
+// its public address. The MR description is the one place a reviewer lands with
+// nothing but the merge request in hand, so the link belongs there.
+func runLink(runID string) string {
+	base := strings.TrimRight(strings.TrimSpace(os.Getenv("AGENTFLOW_PUBLIC_URL")), "/")
+	runID = strings.TrimSpace(runID)
+	if base == "" || runID == "" {
+		return ""
+	}
+	return base + "/#/runs/" + url.PathEscape(runID)
+}
+
+// writeRunRef writes the run line of an MR description, with the link when one
+// can be built. Providers render the description as markdown, so the id itself
+// stays readable when no link is available.
+func writeRunRef(b *strings.Builder, runID string) {
+	if link := runLink(runID); link != "" {
+		fmt.Fprintf(b, "- run: [%s](%s)\n", runID, link)
+		return
+	}
+	fmt.Fprintf(b, "- run: %s\n", runID)
+}
+
 func integrateMRDescription(r domain.Run, work, integrate string) string {
 	if r.Repository.AlignOnly {
-		return fmt.Sprintf("Align the configured main branch into the shared integration baseline.\n\n- run: %s\n- source: `%s`\n- target: `%s`\n", r.ID, work, integrate)
+		var align strings.Builder
+		align.WriteString("Align the configured main branch into the shared integration baseline.\n\n")
+		writeRunRef(&align, r.ID)
+		fmt.Fprintf(&align, "- source: `%s`\n- target: `%s`\n", work, integrate)
+		return align.String()
 	}
 	var b strings.Builder
 	b.WriteString("Scheduled SOP merge of an issue work branch into the integration baseline.\n\n")
 	if n := r.ExecutionContext.IssueNumber; n > 0 {
 		fmt.Fprintf(&b, "- issue: #%d\n", n)
 	}
-	fmt.Fprintf(&b, "- run: %s\n", r.ID)
+	writeRunRef(&b, r.ID)
 	fmt.Fprintf(&b, "- source: `%s`\n", work)
 	fmt.Fprintf(&b, "- target: `%s`\n", integrate)
 	b.WriteString("\nSOP report files are excluded from the baseline. The work branch is kept for history.\n")
