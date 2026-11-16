@@ -17,6 +17,27 @@ func TestDefaultWorkflowID(t *testing.T) {
 	if got := DefaultWorkflowID("local", "issue"); got != issueFixWorkflowID {
 		t.Fatalf("local issue default: %s", got)
 	}
+	if got := DefaultWorkflowID("tapd", "bug"); got != requirementWorkflowID {
+		t.Fatalf("TAPD bug must keep the historical requirement SOP, got %s", got)
+	}
+	if got := DefaultWorkflowID("yunxiao", "requirement"); got != requirementWorkflowID {
+		t.Fatalf("yunxiao requirement default: %s", got)
+	}
+	if got := DefaultWorkflowID("yunxiao", "issue"); got != issueFixWorkflowID {
+		t.Fatalf("yunxiao issue default: %s", got)
+	}
+}
+
+func TestIssueBoundToTrackerYunxiao(t *testing.T) {
+	issue := domain.Issue{Source: "yunxiao", ExternalRef: &domain.ExternalRef{Source: "yunxiao", ExternalID: "wi-1"}}
+	if !IssueBoundToTracker(issue) {
+		t.Fatal("yunxiao work item must count as tracker-bound")
+	}
+	restored := domain.Issue{ID: "yx-p-wi-1"}
+	RestoreTrackerBinding(&restored, issue)
+	if restored.Source != "yunxiao" || restored.ExternalRef == nil || restored.ExternalRef.ExternalID != "wi-1" {
+		t.Fatalf("restored binding = %+v", restored)
+	}
 }
 
 func TestPutIssueDefaultsWorkflowWithoutOverwritingExplicitSelection(t *testing.T) {

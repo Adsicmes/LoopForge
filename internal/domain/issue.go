@@ -226,8 +226,12 @@ func (i Issue) TrackerClosed() bool {
 	}
 	state := strings.ToLower(strings.TrimSpace(i.ExternalRef.ExternalState))
 	switch state {
-	case "closed", "done", "completed", "cancelled", "canceled", "rejected", "已关闭", "已完成", "已拒绝", "取消":
+	case "closed", "已关闭":
 		return true
+	case "done", "completed", "cancelled", "canceled", "rejected", "已完成", "已拒绝", "取消":
+		// Yunxiao workflows use DONE/REJECTED as terminal states. TAPD and
+		// legacy trackers keep their historical closed-only semantics.
+		return strings.EqualFold(strings.TrimSpace(i.Source), "yunxiao")
 	default:
 		return false
 	}

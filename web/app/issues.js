@@ -555,7 +555,7 @@ function parseYunxiaoRepoURL(raw){
   else if((m=/^ssh:\/\/(?:git@)?([^/:]+)(?::\d+)?\/(.+)$/i.exec(s))){host=m[1].toLowerCase();path=m[2];ssh=true}
   else {s=s.replace(/^https?:\/\//i,'');const slash=s.indexOf('/');if(slash<0)return null;host=s.slice(0,slash).toLowerCase();path=s.slice(slash+1)}
   if(!(host==='codeup.aliyun.com'||host.endsWith('.devops.aliyuncs.com')))return null;
-  path=path.replace(/^\/+|\/+$/g,'').replace(/\.git$/i,'');
+  path=path.replace(/^\d+\//,'').replace(/^\/+|\/+$/g,'').replace(/\.git$/i,'');
   for(const marker of ['/-/','/change/','/tree/','/blob/','/commit/','/commits/','/merge_requests/','/issues/','/pulls/','/pipelines/']){const i=path.indexOf(marker);if(i>=0)path=path.slice(0,i)}
   path=path.replace(/^\/+|\/+$/g,'');
   const parts=path.split('/');

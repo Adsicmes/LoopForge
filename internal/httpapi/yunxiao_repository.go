@@ -47,7 +47,11 @@ func (h *catalogHandlers) verifyYunxiaoRepository(c *gin.Context) {
 		return
 	}
 	cfg := h.repo.SyncConfig()
-	client := yunxiao.New(cfg.YunxiaoAPIBase, cfg.YunxiaoOrganizationID, token)
+	client, err := yunxiao.NewChecked(cfg.YunxiaoAPIBase, cfg.YunxiaoOrganizationID, token)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 20*time.Second)
 	defer cancel()
 	remote := strings.TrimPrefix(strings.TrimSpace(repository.GongfengProjectID), "codeup:")

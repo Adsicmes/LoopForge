@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"agentflow/internal/domain"
+	"agentflow/internal/yunxiao"
 
 	"github.com/gin-gonic/gin"
 )
@@ -26,6 +27,10 @@ func (h *syncHandlers) syncConfig(c *gin.Context) {
 		}
 		if cfg.AutoSyncIntervalSec <= 0 {
 			cfg.AutoSyncIntervalSec = 300
+		}
+		if err := yunxiao.ValidateBaseURL(cfg.YunxiaoAPIBase); err != nil {
+			c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
 		}
 		current := h.repo.SyncConfig()
 		cfg.LastSyncAt = current.LastSyncAt

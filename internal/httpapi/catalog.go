@@ -268,10 +268,6 @@ func (h *catalogHandlers) repositories(c *gin.Context) {
 			}
 		}
 	}
-	if v.Provider == "gongfeng" && strings.HasPrefix(v.GongfengProjectID, "codeup:") {
-		c.JSON(400, map[string]string{"error": "云效仓库不能保存为工蜂仓库"})
-		return
-	}
 	if v.DefaultBranch == "" {
 		v.DefaultBranch = "master"
 	}

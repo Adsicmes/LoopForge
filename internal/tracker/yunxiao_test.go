@@ -78,7 +78,7 @@ func TestYunxiaoPullWorkitemsMapsAndPreservesLocalState(t *testing.T) {
 	if !ok {
 		t.Fatalf("missing issue: %+v", store.issues)
 	}
-	if issue.Source != "yunxiao" || issue.Kind != "issue" || issue.Priority != "high" || issue.Status != "in_progress" || issue.AssigneeUserID != 1 {
+	if issue.Source != "yunxiao" || issue.Kind != "bug" || issue.Priority != "high" || issue.Status != "in_progress" || issue.AssigneeUserID != 1 {
 		t.Fatalf("mapped issue = %+v", issue)
 	}
 	if issue.ExternalRef == nil || issue.ExternalRef.ExternalID != "wi-1" || issue.ExternalRef.ExternalType != "Bug" {
@@ -86,6 +86,7 @@ func TestYunxiaoPullWorkitemsMapsAndPreservesLocalState(t *testing.T) {
 	}
 
 	issue.Status = "in_review"
+	issue.Description = "本地澄清后的描述"
 	issue.Clarification.Status = "ready"
 	if err := store.PutIssue(issue); err != nil {
 		t.Fatal(err)
@@ -94,7 +95,7 @@ func TestYunxiaoPullWorkitemsMapsAndPreservesLocalState(t *testing.T) {
 		t.Fatal(err)
 	}
 	refreshed, _ := store.Issue("yx-p-wi-1")
-	if refreshed.Status != "in_review" || refreshed.Clarification.Status != "ready" {
+	if refreshed.Status != "in_review" || refreshed.Description != "本地澄清后的描述" || refreshed.Clarification.Status != "ready" {
 		t.Fatalf("local state was overwritten: %+v", refreshed)
 	}
 	if calls != 2 {

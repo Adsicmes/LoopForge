@@ -282,6 +282,10 @@ func analyticsMRKey(mr DeliveryMR) string {
 		project, iid = p, n
 	}
 	if project != "" && iid > 0 {
+		if strings.HasPrefix(project, "codeup:") {
+			// Codeup repository paths are case-sensitive.
+			return project + "#" + strconv.Itoa(iid)
+		}
 		return gongfengMRKey(project, iid)
 	}
 	return strings.TrimSpace(mr.URL)

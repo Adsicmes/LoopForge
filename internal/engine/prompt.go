@@ -100,7 +100,7 @@ func promptRepositoryLine(run domain.Run) string {
 		return "未绑定代码仓库"
 	}
 	identity := run.Repository.GongfengProjectID
-	if domain.RepositoryUsesSSH(run.Repository.Provider, run.Repository.CloneURL) {
+	if run.Repository.Provider == domain.RepositoryProviderSSH {
 		identity = "Git SSH"
 	}
 	return fmt.Sprintf("%s (%s), 最新远端基线 %s, 本次工作分支 %s", run.Repository.Name, identity, run.Repository.BaseBranch, run.Repository.WorkBranch)
@@ -124,7 +124,7 @@ func upstreamNodeOutputs(wf domain.WorkflowDefinition, node domain.WorkflowNode,
 func sshDeliveryHint(run domain.Run) string {
 	var sshRepos []string
 	for _, repository := range run.RepositoryContexts() {
-		if domain.RepositoryUsesSSH(repository.Provider, repository.CloneURL) {
+		if repository.Provider == domain.RepositoryProviderSSH {
 			sshRepos = append(sshRepos, repository.Name)
 		}
 	}

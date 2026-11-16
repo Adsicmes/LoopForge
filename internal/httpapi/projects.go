@@ -87,9 +87,6 @@ func (h *projectsHandlers) projects(c *gin.Context) {
 			if strings.TrimSpace(v.YunxiaoSpaceID) == "" {
 				v.YunxiaoSpaceID = existing.YunxiaoSpaceID
 			}
-			if strings.TrimSpace(v.YunxiaoSprintID) == "" {
-				v.YunxiaoSprintID = existing.YunxiaoSprintID
-			}
 			if v.YunxiaoWorkItemTypes == nil {
 				v.YunxiaoWorkItemTypes = existing.YunxiaoWorkItemTypes
 			}

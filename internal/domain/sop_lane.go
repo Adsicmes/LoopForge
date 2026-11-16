@@ -82,7 +82,7 @@ func InferSOPLane(wf WorkflowDefinition) string {
 func IsRequirementWorkItem(issue Issue) bool {
 	kind := strings.ToLower(strings.TrimSpace(issue.Kind))
 	source := strings.ToLower(strings.TrimSpace(issue.Source))
-	if source == "gongfeng" || kind == "issue" {
+	if source == "gongfeng" || kind == "issue" || (source == "yunxiao" && kind == "bug") {
 		return false
 	}
 	return kind == "requirement" || source == "tapd" || source == "local" || source == "yunxiao" || source == ""

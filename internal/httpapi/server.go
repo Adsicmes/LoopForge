@@ -691,6 +691,19 @@ func (s *Server) health(c *gin.Context) {
 	c.JSON(http.StatusOK, map[string]any{"status": "ok", "role": "api", "pid": os.Getpid()})
 }
 
+// yunxiaoConfigured reports whether the platform can use Yunxiao. A Region
+// station does not need an organization id, while the central station does.
+func yunxiaoConfigured(cfg domain.SyncConfig) bool {
+	base := strings.TrimSpace(cfg.YunxiaoAPIBase)
+	if base == "" {
+		return false
+	}
+	if strings.Contains(strings.ToLower(base), "openapi-rdc.aliyuncs.com") && strings.TrimSpace(cfg.YunxiaoOrganizationID) == "" {
+		return false
+	}
+	return true
+}
+
 func (s *Server) capabilities(c *gin.Context) {
 	cfg := s.repo.SyncConfig()
 	c.JSON(http.StatusOK, map[string]any{
@@ -700,7 +713,7 @@ func (s *Server) capabilities(c *gin.Context) {
 			"stdioCommand":   "agentflow-mcp",
 		},
 		"yunxiao": map[string]any{
-			"enabled":        strings.TrimSpace(cfg.YunxiaoAPIBase) != "" && strings.TrimSpace(cfg.YunxiaoOrganizationID) != "",
+			"enabled":        yunxiaoConfigured(cfg),
 			"apiBase":        strings.TrimSpace(cfg.YunxiaoAPIBase),
 			"organizationId": strings.TrimSpace(cfg.YunxiaoOrganizationID),
 		},
@@ -773,7 +786,7 @@ func (s *Server) bootstrap(c *gin.Context) {
 		"storage": s.repo.StorageInfo(),
 		"capabilities": map[string]bool{
 			"docker":  runtime.DockerReady(),
-			"yunxiao": strings.TrimSpace(syncConfig.YunxiaoAPIBase) != "" && strings.TrimSpace(syncConfig.YunxiaoOrganizationID) != "",
+			"yunxiao": yunxiaoConfigured(syncConfig),
 		},
 		// Set when users without their own CodeBuddy API Key can still chat
 		// and run SOPs on the platform's shared key, limited to these models

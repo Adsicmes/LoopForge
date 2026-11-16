@@ -17,7 +17,10 @@ func (h *agentToolGateway) createYunxiaoMR(ctx context.Context, token string, rc
 		return yunxiao.ChangeRequest{}, false, fmt.Errorf("云效仓库 %s 未在项目中登记", rc.Name)
 	}
 	cfg := h.repo.SyncConfig()
-	client := yunxiao.New(cfg.YunxiaoAPIBase, cfg.YunxiaoOrganizationID, token)
+	client, err := yunxiao.NewChecked(cfg.YunxiaoAPIBase, cfg.YunxiaoOrganizationID, token)
+	if err != nil {
+		return yunxiao.ChangeRequest{}, false, err
+	}
 	repoID := repository.YunxiaoRepoID
 	if repoID <= 0 {
 		path := strings.TrimPrefix(strings.TrimSpace(repository.GongfengProjectID), "codeup:")

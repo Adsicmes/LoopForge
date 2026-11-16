@@ -2,6 +2,7 @@ package tracker
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"log"
 	"strconv"
@@ -46,7 +47,11 @@ func (s *Service) yunxiaoClientForProject(projectID string, userID int64) (*yunx
 	if strings.TrimSpace(cfg.YunxiaoOrganizationID) == "" && strings.Contains(strings.ToLower(base), "openapi-rdc.aliyuncs.com") {
 		return nil, project, user, fmt.Errorf("平台尚未配置云效组织 ID")
 	}
-	return yunxiao.New(base, cfg.YunxiaoOrganizationID, token), project, user, nil
+	client, err := yunxiao.NewChecked(base, cfg.YunxiaoOrganizationID, token)
+	if err != nil {
+		return nil, project, user, err
+	}
+	return client, project, user, nil
 }
 
 // yunxiaoClientForProjectOrOwner prefers the given user's PAT and falls back to
@@ -311,7 +316,7 @@ func (s *Service) pullAllYunxiao(store IssueStoreAdapter) (int, error) {
 		if spaceID == "" {
 			continue
 		}
-		key := spaceID + "|" + strings.TrimSpace(project.YunxiaoSprintID)
+		key := spaceID
 		if seen[key] {
 			continue
 		}
@@ -401,6 +406,7 @@ func (s *Service) yunxiaoSyncedIssue(project domain.Project, item yunxiao.Workit
 		issueID = existing.ID
 	}
 	status := yunxiaoStatus(project, item.Status)
+	descriptionHash := yunxiaoContentHash(item.Description)
 	issue := domain.Issue{
 		ID:             issueID,
 		ProjectID:      project.ID,
@@ -413,16 +419,25 @@ func (s *Service) yunxiaoSyncedIssue(project domain.Project, item yunxiao.Workit
 		AssigneeUserID: s.yunxiaoAssigneeUserID(item.AssignedTo),
 		Source:         "yunxiao",
 		ExternalRef: &domain.ExternalRef{
-			Source:        "yunxiao",
-			ExternalID:    strings.TrimSpace(item.ID),
-			ExternalURL:   yunxiaoWorkitemURL(project, item),
-			ExternalState: yunxiaoExternalState(item.Status),
-			ExternalType:  yunxiaoExternalType(item),
-			SyncedAt:      time.Now().UTC(),
+			Source:            "yunxiao",
+			ExternalID:        strings.TrimSpace(item.ID),
+			ExternalURL:       yunxiaoWorkitemURL(project, item),
+			ExternalState:     yunxiaoExternalStateFor(project, item.Status),
+			ExternalType:      yunxiaoExternalType(item),
+			SourceContentHash: descriptionHash,
+			SyncedAt:          time.Now().UTC(),
 		},
 	}
 	if found {
 		applyExistingIssue(&issue, existing)
+		if existing.ExternalRef != nil && existing.ExternalRef.SourceContentHash != "" &&
+			(existing.ExternalRef.SourceContentHash != descriptionHash ||
+				existing.ExternalRef.SourceContentHash != yunxiaoContentHash(existing.Description)) {
+			// A remote edit or a local clarification changed the description;
+			// preserve the local text instead of letting the next pull overwrite
+			// the clarified body.
+			issue.Description = existing.Description
+		}
 	} else {
 		issue.CreatedAt = parseTime(item.CreatedAt)
 	}
@@ -455,6 +470,10 @@ func (s *Service) yunxiaoAssigneeUserID(user yunxiao.User) int64 {
 		}
 	}
 	return 0
+}
+
+func yunxiaoContentHash(body string) string {
+	return fmt.Sprintf("%x", sha256.Sum256([]byte(body)))
 }
 
 func yunxiaoIssueID(projectID, externalID string) string {
@@ -495,10 +514,14 @@ func findYunxiaoIssue(store IssueStoreAdapter, projectID, externalID string) (do
 }
 
 func yunxiaoKind(category string) string {
-	if strings.EqualFold(strings.TrimSpace(category), "Req") {
+	switch strings.ToLower(strings.TrimSpace(category)) {
+	case "req", "requirement":
 		return "requirement"
+	case "bug":
+		return "bug"
+	default:
+		return "issue"
 	}
-	return "issue"
 }
 
 func yunxiaoExternalType(item yunxiao.Workitem) string {
@@ -509,6 +532,15 @@ func yunxiaoExternalType(item yunxiao.Workitem) string {
 		return strings.TrimSpace(item.WorkitemType.Name)
 	}
 	return "Req"
+}
+
+func yunxiaoExternalStateFor(project domain.Project, status yunxiao.WorkitemStatus) string {
+	switch yunxiaoStatus(project, status) {
+	case "closed", "done", "cancelled":
+		return "closed"
+	default:
+		return yunxiaoExternalState(status)
+	}
 }
 
 func yunxiaoExternalState(status yunxiao.WorkitemStatus) string {
@@ -608,7 +640,7 @@ func (s *Service) CreateYunxiaoWorkitem(store IssueStoreAdapter, issue domain.Is
 		return issue, fmt.Errorf("项目 %s 未配置云效空间 ID", project.ID)
 	}
 	category := yunxiaoCreateCategory(project, issue)
-	typeID := strings.TrimSpace(project.YunxiaoWorkItemTypes[category])
+	typeID := yunxiaoTypeID(project.YunxiaoWorkItemTypes, category)
 	if typeID == "" {
 		return issue, fmt.Errorf("项目 %s 未配置云效工作项类型 %s", project.ID, category)
 	}
@@ -624,27 +656,27 @@ func (s *Service) CreateYunxiaoWorkitem(store IssueStoreAdapter, issue domain.Is
 		AssignedTo:     assignee,
 		SpaceID:        spaceID,
 		WorkitemTypeID: typeID,
-		Subject:        strings.TrimSpace(issue.Title),
-		Description:    issue.Description,
+		Subject:        truncateTitle(issue.Title),
+		Description:    truncateDescription(issue.Description),
 		FormatType:     "MARKDOWN",
 	})
 	if err != nil {
 		s.addLog(domain.SyncLog{ID: fmt.Sprintf("sync-%d", started.UnixNano()), Direction: "push", Source: "yunxiao", Action: "create_issue", Status: "failed", Message: err.Error(), ProjectID: project.ID, StartedAt: started, FinishedAt: time.Now().UTC()})
 		return issue, err
 	}
-	item, err := client.GetWorkitem(context.Background(), createdID)
-	if err != nil {
-		return issue, err
-	}
+	// Persist the remote ID before fetching details: a failed detail lookup must
+	// not leave a workitem that exists in Yunxiao but has no local record.
 	issue.Source = "yunxiao"
 	issue.Kind = yunxiaoKind(category)
 	issue.ExternalRef = &domain.ExternalRef{
-		Source:        "yunxiao",
-		ExternalID:    createdID,
-		ExternalURL:   yunxiaoWorkitemURL(project, item),
-		ExternalState: yunxiaoExternalState(item.Status),
-		ExternalType:  yunxiaoExternalType(item),
-		SyncedAt:      time.Now().UTC(),
+		Source:     "yunxiao",
+		ExternalID: createdID,
+		ExternalURL: yunxiaoWorkitemURL(project, yunxiao.Workitem{
+			ID:         createdID,
+			CategoryID: category,
+		}),
+		ExternalType: category,
+		SyncedAt:     time.Now().UTC(),
 	}
 	stable := yunxiaoIssueID(project.ID, createdID)
 	oldID := issue.ID
@@ -655,8 +687,29 @@ func (s *Service) CreateYunxiaoWorkitem(store IssueStoreAdapter, issue domain.Is
 	if oldID != "" && oldID != stable && strings.HasPrefix(oldID, "issue-") {
 		_ = store.DeleteIssue(oldID)
 	}
+	if item, detailErr := client.GetWorkitem(context.Background(), createdID); detailErr == nil {
+		issue.ExternalRef.ExternalURL = yunxiaoWorkitemURL(project, item)
+		issue.ExternalRef.ExternalState = yunxiaoExternalStateFor(project, item.Status)
+		issue.ExternalRef.ExternalType = yunxiaoExternalType(item)
+		issue.ExternalRef.SyncedAt = time.Now().UTC()
+		_ = store.PutIssue(issue)
+	} else {
+		log.Printf("yunxiao workitem %s created but detail lookup failed: %v", createdID, detailErr)
+	}
 	s.addLog(domain.SyncLog{ID: fmt.Sprintf("sync-%d", started.UnixNano()), Direction: "push", Source: "yunxiao", Action: "create_issue", Status: "success", Count: 1, Message: fmt.Sprintf("创建云效工作项 %s: %s", createdID, issue.Title), ProjectID: project.ID, StartedAt: started, FinishedAt: time.Now().UTC()})
 	return issue, nil
+}
+
+func yunxiaoTypeID(types map[string]string, category string) string {
+	if value := strings.TrimSpace(types[category]); value != "" {
+		return value
+	}
+	for key, value := range types {
+		if strings.EqualFold(strings.TrimSpace(key), category) {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 func yunxiaoCreateCategory(project domain.Project, issue domain.Issue) string {

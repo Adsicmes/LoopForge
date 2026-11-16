@@ -214,12 +214,12 @@ func TestYunxiaoRepositoryJSONFields(t *testing.T) {
 	if !strings.Contains(string(raw), `"yunxiaoRepoId":2464348`) {
 		t.Fatalf("repository JSON = %s", raw)
 	}
-	project := Project{YunxiaoSpaceID: "space", YunxiaoSprintID: "sprint", YunxiaoDefaultAssigneeID: "u1", YunxiaoStatusMap: map[string]string{"DONE": "done"}}
+	project := Project{YunxiaoSpaceID: "space", YunxiaoDefaultAssigneeID: "u1", YunxiaoStatusMap: map[string]string{"DONE": "done"}}
 	raw, err = json.Marshal(project)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`"yunxiaoSpaceId":"space"`, `"yunxiaoSprintId":"sprint"`, `"yunxiaoDefaultAssigneeId":"u1"`, `"DONE":"done"`} {
+	for _, want := range []string{`"yunxiaoSpaceId":"space"`, `"yunxiaoDefaultAssigneeId":"u1"`, `"DONE":"done"`} {
 		if !strings.Contains(string(raw), want) {
 			t.Fatalf("project JSON missing %s: %s", want, raw)
 		}

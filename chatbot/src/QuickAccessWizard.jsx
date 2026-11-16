@@ -609,7 +609,7 @@ export function parseYunxiaoRepo(raw) {
     path = value.slice(slash + 1);
   }
   if (!(host === "codeup.aliyun.com" || host.endsWith(".devops.aliyuncs.com"))) return null;
-  path = path.replace(/^\/+|\/+$/g, "").replace(/\.git$/i, "");
+  path = path.replace(/^\d+\//, "").replace(/^\/+|\/+$/g, "").replace(/\.git$/i, "");
   for (const marker of [
     "/-/",
     "/change/",

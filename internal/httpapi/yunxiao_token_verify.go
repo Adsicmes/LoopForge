@@ -60,13 +60,23 @@ func (h *usersHandlers) verifyYunxiaoToken(c *gin.Context) {
 		return
 	}
 	cfg := h.repo.SyncConfig()
+	repositoryPath := ""
+	for _, repository := range h.repo.Repositories() {
+		if repository.Provider == domain.RepositoryProviderYunxiao {
+			repositoryPath = strings.TrimPrefix(strings.TrimSpace(repository.GongfengProjectID), "codeup:")
+			break
+		}
+	}
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 15*time.Second)
 	defer cancel()
-	c.JSON(http.StatusOK, verifyYunxiaoPAT(ctx, cfg, token))
+	c.JSON(http.StatusOK, verifyYunxiaoPAT(ctx, cfg, token, repositoryPath))
 }
 
-func verifyYunxiaoPAT(ctx context.Context, cfg domain.SyncConfig, token string) yunxiaoTokenVerifyResult {
-	client := yunxiao.New(cfg.YunxiaoAPIBase, cfg.YunxiaoOrganizationID, token)
+func verifyYunxiaoPAT(ctx context.Context, cfg domain.SyncConfig, token, repositoryPath string) yunxiaoTokenVerifyResult {
+	client, err := yunxiao.NewChecked(cfg.YunxiaoAPIBase, cfg.YunxiaoOrganizationID, token)
+	if err != nil {
+		return yunxiaoTokenVerifyResult{Error: err.Error()}
+	}
 	orgs, err := client.ListOrganizations(ctx)
 	if err == nil {
 		names := make([]string, 0, len(orgs))
@@ -77,8 +87,16 @@ func verifyYunxiaoPAT(ctx context.Context, cfg domain.SyncConfig, token string) 
 		}
 		return yunxiaoTokenVerifyResult{Valid: true, Organizations: names}
 	}
-	// Region stations do not expose the organization-list endpoint. A
-	// read-only change-request call is enough to prove the PAT is accepted.
+	// Region stations do not expose the organization-list endpoint. Verify
+	// against a bound Codeup repository when one exists; this proves both the
+	// token and its code-management permission without a project-wide call.
+	if repositoryPath != "" {
+		if _, repoErr := client.GetRepository(ctx, repositoryPath); repoErr == nil {
+			return yunxiaoTokenVerifyResult{Valid: true}
+		} else {
+			return yunxiaoTokenVerifyResult{Error: repoErr.Error()}
+		}
+	}
 	if _, readErr := client.ListChangeRequests(ctx, nil, "", 1, 1); readErr != nil {
 		return yunxiaoTokenVerifyResult{Error: err.Error()}
 	}

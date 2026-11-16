@@ -202,7 +202,6 @@ YunxiaoRepoID     int    // Codeup numeric repository id, resolved lazily
 
 ```go
 YunxiaoSpaceID       string            `json:"yunxiaoSpaceId,omitempty"`
-YunxiaoSprintID      string            `json:"yunxiaoSprintId,omitempty"`
 YunxiaoWorkItemTypes map[string]string `json:"yunxiaoWorkItemTypes,omitempty"`
 YunxiaoStatusMap     map[string]string `json:"yunxiaoStatusMap,omitempty"`
 YunxiaoDefaultAssigneeID string        `json:"yunxiaoDefaultAssigneeId,omitempty"`
@@ -328,7 +327,7 @@ func (c *Client) ListOrganizations(ctx) ([]Organization, error)
 **拉取池**
 
 - 以项目为单位，而不是仓库：项目配置了 `YunxiaoSpaceID` 才参与拉取。
-- 支持 `YunxiaoSprintID` 可选过滤；为空拉整个空间。
+- MVP 不支持按迭代过滤（`SearchWorkitems` 请求没有稳定的 `sprintId` 字段）；项目配置只到空间级。需要按迭代收窄时，后续通过 `conditions` 增加。
 - 拉取类别：默认 `Req,Bug`，可通过项目配置扩展 `Task`。
 - `SearchWorkitems` 请求：
   - `spaceId` = 项目 `YunxiaoSpaceID`
@@ -547,7 +546,7 @@ func MRURL(provider, project string, iid int) string
 
 **目标**：云效工作项进入需求列表，支持创建、评论、定时触发。
 
-- [ ] `domain.Project`：`YunxiaoSpaceID`、`YunxiaoSprintID`、`YunxiaoWorkItemTypes`、`YunxiaoStatusMap`、`YunxiaoDefaultAssigneeID`。
+- [ ] `domain.Project`：`YunxiaoSpaceID`、`YunxiaoWorkItemTypes`、`YunxiaoStatusMap`、`YunxiaoDefaultAssigneeID`。
 - [ ] `internal/yunxiao`：`SearchWorkitems`、`GetWorkitem`、`CreateWorkitem`、`CreateWorkitemComment`。
 - [ ] `tracker`：`pullYunxiaoWorkitems`、`CreateYunxiaoWorkitem`、`WriteBackClarification` 的云效 case、`PullAll`/`PullScheduleJob` 分流。
 - [ ] `domain`：`NormalizeScheduleSource` 接受 `yunxiao`；`TrackerClosed` 覆盖云效终态；`externalIssueKey` 增加云效键。

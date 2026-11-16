@@ -34,6 +34,30 @@ func writeJSON(w http.ResponseWriter, body string) {
 	io.WriteString(w, body)
 }
 
+func TestValidateBaseURL(t *testing.T) {
+	for _, raw := range []string{
+		"",
+		"https://openapi-rdc.aliyuncs.com",
+		"https://acme.devops.aliyuncs.com",
+		"http://127.0.0.1:1234",
+		"http://localhost:1234",
+	} {
+		if err := ValidateBaseURL(raw); err != nil {
+			t.Fatalf("ValidateBaseURL(%q) = %v", raw, err)
+		}
+	}
+	for _, raw := range []string{
+		"http://evil.example",
+		"https://evil.example",
+		"https://user:pass@openapi-rdc.aliyuncs.com",
+		"https://openapi-rdc.aliyuncs.com/?redirect=evil",
+	} {
+		if err := ValidateBaseURL(raw); err == nil {
+			t.Fatalf("ValidateBaseURL(%q) accepted an unsafe host", raw)
+		}
+	}
+}
+
 func TestStationPaths(t *testing.T) {
 	tests := []struct {
 		name   string

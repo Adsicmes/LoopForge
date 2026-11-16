@@ -44,6 +44,48 @@ type Client struct {
 	central        bool
 }
 
+// ValidateBaseURL rejects a Yunxiao API base that could send the personal
+// access token to an arbitrary host or over cleartext HTTP. Loopback HTTP is
+// allowed for local tests and private sidecars.
+func ValidateBaseURL(base string) error {
+	raw := strings.TrimSpace(base)
+	if raw == "" {
+		return nil
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Hostname() == "" {
+		return fmt.Errorf("云效 API 地址无法解析")
+	}
+	if u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+		return fmt.Errorf("云效 API 地址不能包含账号、查询参数或片段")
+	}
+	host := strings.ToLower(u.Hostname())
+	loopback := host == "localhost" || host == "127.0.0.1" || host == "::1"
+	if u.Scheme == "http" {
+		if !loopback {
+			return fmt.Errorf("云效 API 地址必须使用 https")
+		}
+		return nil
+	}
+	if u.Scheme != "https" {
+		return fmt.Errorf("云效 API 地址必须使用 https")
+	}
+	if host == "openapi-rdc.aliyuncs.com" || strings.HasSuffix(host, ".devops.aliyuncs.com") || loopback {
+		return nil
+	}
+	return fmt.Errorf("云效 API 地址必须是中心站 openapi-rdc.aliyuncs.com 或 Region 的 *.devops.aliyuncs.com 域名")
+}
+
+// NewChecked validates base before constructing a client. Production callers
+// should use this instead of New so a pasted token cannot be sent to an
+// arbitrary host.
+func NewChecked(base, org, token string) (*Client, error) {
+	if err := ValidateBaseURL(base); err != nil {
+		return nil, err
+	}
+	return New(base, org, token), nil
+}
+
 // New builds a client for base (DefaultBaseURL when empty), organization org
 // and personal access token token. A base containing /oapi/v1 or the central
 // host openapi-rdc.aliyuncs.com is treated as the central station; anything

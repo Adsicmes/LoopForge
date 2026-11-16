@@ -2,6 +2,7 @@ package domain
 
 import (
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 )
@@ -25,6 +26,12 @@ type DeliveryMR struct {
 // YunxiaoWebBase is the web base used to build Codeup merge request links.
 // Region deployments override it, e.g. https://<org>.devops.aliyuncs.com.
 var YunxiaoWebBase = "https://" + CodeupHost
+
+func init() {
+	if base := strings.TrimRight(strings.TrimSpace(os.Getenv("AGENTFLOW_YUNXIAO_WEB_BASE")), "/"); base != "" {
+		YunxiaoWebBase = base
+	}
+}
 
 // MRURL returns the canonical web URL of a hosted merge request. provider is
 // the repository provider (github, yunxiao, ...); the project identity alone

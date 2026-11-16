@@ -35,7 +35,6 @@ type Project struct {
 	TAPDWorkspaceID              string `json:"tapdWorkspaceId,omitempty"`
 	TAPDIterationID              string `json:"tapdIterationId,omitempty"`
 	YunxiaoSpaceID               string `json:"yunxiaoSpaceId,omitempty"`
-	YunxiaoSprintID              string `json:"yunxiaoSprintId,omitempty"`
 	// YunxiaoWorkItemTypes maps a local work item kind (Req/Bug/Task) to a
 	// Projex work item type id.
 	YunxiaoWorkItemTypes map[string]string `json:"yunxiaoWorkItemTypes,omitempty"`

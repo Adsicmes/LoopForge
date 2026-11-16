@@ -122,6 +122,21 @@ func TestRunJobDispatchLimitCountsOnlySuccessfulDispatches(t *testing.T) {
 	}
 }
 
+func TestEligibleIssuesSkipsYunxiaoClosed(t *testing.T) {
+	st, err := repo.OpenTest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(st.Close)
+	open := domain.Issue{ID: "yx-open", ProjectID: "platform", Source: "yunxiao", Status: "todo", Title: "open"}
+	closed := domain.Issue{ID: "yx-closed", ProjectID: "platform", Source: "yunxiao", Status: "todo", Title: "closed", ExternalRef: &domain.ExternalRef{Source: "yunxiao", ExternalState: "DONE"}}
+	svc := New(st, tracker.NewService(), nil)
+	got := svc.eligibleIssues(domain.ScheduleJob{Source: "yunxiao", WorkflowID: "wf"}, []domain.Issue{open, closed})
+	if len(got) != 1 || got[0].ID != "yx-open" {
+		t.Fatalf("eligible = %+v", got)
+	}
+}
+
 func TestRunJobOnlyDispatchesEligibleUnprocessedIssues(t *testing.T) {
 	st, err := repo.OpenTest()
 	if err != nil {

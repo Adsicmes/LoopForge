@@ -150,9 +150,9 @@ type CreateWorkitemInput struct {
 	SpaceID           string             `json:"spaceId"`
 	WorkitemTypeID    string             `json:"workitemTypeId"`
 	Subject           string             `json:"subject"`
-	Description       string             `json:"description,omitempty"`
-	FormatType        string             `json:"formatType,omitempty"`
-	CustomFieldValues []CustomFieldValue `json:"customFieldValues,omitempty"`
+	Description       string            `json:"description,omitempty"`
+	FormatType        string            `json:"formatType,omitempty"`
+	CustomFieldValues map[string]string `json:"customFieldValues,omitempty"`
 }
 
 // Organization is a Yunxiao organization from the central-station platform API.

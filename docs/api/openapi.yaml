@@ -4192,8 +4192,6 @@ components:
           type: string
         yunxiaoSpaceId:
           type: string
-        yunxiaoSprintId:
-          type: string
         yunxiaoWorkItemTypes:
           type: object
           additionalProperties: {type: string}
