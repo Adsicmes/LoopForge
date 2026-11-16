@@ -180,3 +180,19 @@ Object.assign(window.LF_I18N_EN,{
   "外部原单会保留，后续同步可能重新导入。":"The original external record is kept, and a later sync may import it again.",
   "需求已有执行记录或已完成，请确认强制删除":"This requirement has execution history or is already completed. Confirm force deletion."
 });
+Object.assign(window.LF_I18N_EN,{
+  "云效":"Yunxiao",
+  "云效访问令牌":"Yunxiao access token",
+  "绑定云效 Codeup 仓库、创建合并请求与同步 Projex 工作项":"Bind Yunxiao Codeup repositories, create merge requests and sync Projex work items",
+  "阿里云云效个人访问令牌（PAT），用于 Codeup 合并请求和 Projex 工作项同步；Git 克隆和推送仍使用 Git SSH 密钥。":"Alibaba Cloud Yunxiao personal access token (PAT) for Codeup merge requests and Projex work item sync; Git clone and push still use your Git SSH key.",
+  "登录云效工作台，进入「个人设置 → 个人访问令牌」新建令牌":"Sign in to the Yunxiao console, open Personal settings → Personal access tokens, and create a token",
+  "按最小授权勾选代码管理、项目协作的读写权限；只做同步时保留只读":"Grant only the code management and project collaboration permissions you need; read-only is enough for sync",
+  "复制令牌粘贴到下方；云效仓库请同时为 codeup.aliyun.com 配置 Git SSH 密钥":"Paste the token below; for Codeup repositories also configure a Git SSH key for codeup.aliyun.com",
+  "请输入云效个人访问令牌（PAT）":"Enter your Yunxiao personal access token (PAT)",
+  "令牌只用于云效 OpenAPI，不会写入仓库或 Git URL":"The token is used only for the Yunxiao OpenAPI and never written to a repository or Git URL",
+  "云效仓库的 MR 交付与 Projex 工作项同步将不可用。":"Merge request delivery for Yunxiao repositories and Projex work item sync will be unavailable.",
+  "云效工作项":"Yunxiao work item",
+  "只同步云效":"Sync Yunxiao only",
+  "云效 API 地址（平台，留空不启用）":"Yunxiao API base (platform; leave blank to disable)",
+  "云效组织 ID（平台）":"Yunxiao organization ID (platform)"
+});
