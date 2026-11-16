@@ -11,11 +11,11 @@ function codeupOrganizationFromAddress(raw){
 function mountCodeupRepoPicker(host,onSelect,options){
   if(!host)return;
   const getAddress=typeof options?.getAddress==='function'?options.getAddress:()=>'';
-  const configured=!!userById(state.currentUser?.id)?.gitTokenConfigured;
+  const configured=(userById(state.currentUser?.id)?.gitTokenProviders||[]).includes('codeup');
   host.innerHTML='<div class="codeup-picker">'
     +'<p class="codeup-picker-hint" data-codeup-hint>'+(configured
       ?'云效仓库用你在个人配置里的个人访问令牌读取，按组织范围列出。'
-      :'还没有配置 Git Token：先在个人配置里填写云效个人访问令牌（需要「代码管理 · 合并请求」读写权限）。')+'</p>'
+      :'还没有配置云效令牌：先在「个人配置 → 云效 Codeup」填写个人访问令牌（需要「代码管理 · 合并请求」读写权限）。')+'</p>'
     +'<label class="pa-field"><span>云效组织 ID</span><input class="pa-input" data-codeup-org placeholder="24 位十六进制，如 60de7a6852743a5162b5f957" autocomplete="off"></label>'
     +'<label class="pa-field"><span>搜索仓库</span><input class="pa-input" type="search" data-codeup-search placeholder="仓库名或分组，留空列出全部" autocomplete="off"></label>'
     +'<div class="codeup-picker-actions"><button type="button" class="button ghost small" data-codeup-load>从云效选择仓库</button></div>'

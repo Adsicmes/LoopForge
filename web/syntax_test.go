@@ -501,19 +501,22 @@ const count = (html, needle) => html.split(needle).length - 1;
 
 // Groups list credentials in a fixed order.
 assert.deepEqual(cred.CREDENTIAL_GROUPS.map(g => g.id), ['platform', 'model']);
-assert.deepEqual(cred.CREDENTIAL_KINDS.filter(k => k.group === 'platform').map(k => k.key), ['gitToken', 'gitSshKey']);
+// 每个代码托管平台一个独立槽位，令牌互不覆盖。
+assert.deepEqual(cred.CREDENTIAL_KINDS.filter(k => k.group === 'platform').map(k => k.key), ['gitToken', 'gitTokenGongfeng', 'gitTokenCodeup', 'gitSshKey']);
+assert.deepEqual(cred.CREDENTIAL_KINDS.filter(k => k.gitProvider).map(k => k.gitProvider), ['github', 'gongfeng', 'codeup']);
 assert.deepEqual(cred.CREDENTIAL_KINDS.filter(k => k.group === 'model').map(k => k.key), ['codeBuddyApiKey', 'codexApiKey', 'claudeCodeApiKey', 'agentCli.opencode', 'agentCli.cursor', 'agentCli.agy', 'agentCli.kimi', 'agentCli.pi', 'agentCli.dsh', 'agentCli.zcode']);
 
 // Progress, next-step hint, filter counts and per-group counts.
 const html = credentialPanelHTML(user);
-assert.ok(html.includes('<b>2</b> / 12 已配置'));
+// 14 = the credential kinds with the three repository platforms counted separately.
+assert.ok(html.includes('<b>2</b> / 14 已配置'));
 assert.ok(html.includes('data-credential-setup="codeBuddyApiKey"'), 'next step follows Git → CodeBuddy');
-assert.ok(html.includes('1 / 2') && html.includes('1 / 10'));
-assert.ok(html.includes('已配置<span>2</span>') && html.includes('未配置<span>10</span>'));
-assert.equal(count(html, 'data-credential-row='), 12);
+assert.ok(html.includes('1 / 4') && html.includes('1 / 10'));
+assert.ok(html.includes('已配置<span>2</span>') && html.includes('未配置<span>12</span>'));
+assert.equal(count(html, 'data-credential-row='), 14);
 assert.ok(!html.includes('credential-grid') && !html.includes('credential-savebar') && !html.includes('userCredentialForm'));
 // Unconfigured rows only offer 去配置; configured rows carry an inline editor with delete.
-assert.equal(count(html, 'data-credential-act="setup"'), 10);
+assert.equal(count(html, 'data-credential-act="setup"'), 12);
 assert.equal(count(html, 'credential-editor-form'), 2);
 assert.equal(count(html, 'data-credential-act="delete"'), 2);
 for (const key of ['codeBuddyApiKey', 'claudeCodeApiKey']) {
@@ -529,7 +532,10 @@ assert.ok(credentialPanelHTML({...user, codeBuddyApiKeyConfigured: true}).includ
 assert.equal(credentialNextKind({}).key, 'gitToken');
 
 // Each kind saves and deletes only its own fields.
-assert.deepEqual(credentialSavePayload(cred.kind('gitToken'), {secret: ' ghp_1 '}), {gitToken: 'ghp_1'});
+// 令牌写入所属平台的槽位，不会覆盖其他平台已经保存的令牌。
+assert.deepEqual(credentialSavePayload(cred.kind('gitToken'), {secret: ' ghp_1 '}), {gitToken: 'ghp_1', gitTokenProvider: 'github'});
+assert.deepEqual(credentialSavePayload(cred.kind('gitTokenCodeup'), {secret: ' pat '}), {gitToken: 'pat', gitTokenProvider: 'codeup'});
+assert.deepEqual(credentialClearPayload(cred.kind('gitTokenCodeup')), {gitTokenClear: true, gitTokenProvider: 'codeup'});
 const sshRow = credentialRowHTML(cred.kind('gitSshKey'), {...user, gitSshKeyConfigured: true});
 assert.match(sshRow, /aria-haspopup="dialog">管理密钥/);
 assert.ok(!sshRow.includes('credential-editor-form'));
@@ -571,7 +577,7 @@ assert.ok(credentialCatalogError([{id: 'a b'}]).error.includes('空格'));
 assert.ok(credentialCatalogError([{id: 'a'}, {id: 'a'}]).error.includes('重复'));
 assert.equal(credentialCatalogError([{id: 'a', name: 'n'.repeat(65)}]).field, 'name');
 assert.deepEqual(credentialClearPayload(cred.kind('codeBuddyApiKey')), {codeBuddyApiKeyClear: true});
-assert.deepEqual(credentialClearPayload(cred.kind('gitToken')), {gitTokenClear: true});
+assert.deepEqual(credentialClearPayload(cred.kind('gitToken')), {gitTokenClear: true, gitTokenProvider: 'github'});
 assert.equal(credentialSecretError(cred.kind('gitToken'), 'github_pat_1'), '');
 assert.ok(credentialExtraError(cred.kind('codexApiKey'), 'ftp://proxy'));
 assert.equal(credentialExtraError(cred.kind('codexApiKey'), ''), '');

@@ -316,7 +316,7 @@ func (h *githubHandlers) repositories(c *gin.Context) {
 		return
 	}
 	user, ok := h.repo.User(userID)
-	if !ok || user.GitToken == "" {
+	if !ok || strings.TrimSpace(user.GitTokenFor(domain.GitProviderGitHub)) == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "请先连接 GitHub"})
 		return
 	}
@@ -331,7 +331,7 @@ func (h *githubHandlers) repositories(c *gin.Context) {
 		DefaultBranch string `json:"default_branch"`
 		Private       bool   `json:"private"`
 	}
-	_, token := gitwork.SplitToken(user.GitToken)
+	_, token := gitwork.SplitToken(user.GitTokenFor(domain.GitProviderGitHub))
 	err = h.request(c, http.MethodGet, "https://api.github.com/user/repos?per_page=100&sort=updated&affiliation=owner,collaborator,organization_member&page="+strconv.Itoa(page), token, nil, &repositories)
 	if err != nil {
 		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})

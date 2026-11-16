@@ -41,7 +41,7 @@ func (s *Service) codeupClient(project string) (*codeup.Client, error) {
 			}
 			if p, found := s.projectAuth.Project(repository.ProjectID); found {
 				if u, exists := s.projectAuth.User(p.OwnerID); exists {
-					token = u.GitToken
+					token = u.GitTokenFor(domain.GitProviderCodeup)
 				}
 			}
 			break

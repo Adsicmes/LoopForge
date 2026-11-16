@@ -22,7 +22,7 @@ func (e *Engine) AlignBaseline(repository domain.RepositoryContext, gitToken str
 }
 
 func (e *Engine) AlignBaselineForUser(repository domain.RepositoryContext, userID int64) error {
-	return e.alignBaseline(repository, resolveGitToken(e.repo, userID), userID)
+	return e.alignBaseline(repository, resolveGitTokenFor(e.repo, userID, domain.GitProviderForRepositoryContext(repository)), userID)
 }
 
 func (e *Engine) alignBaseline(repository domain.RepositoryContext, gitToken string, userID int64) error {

@@ -379,7 +379,7 @@ func (h *assistantHandlers) lookupAssistantMCP(projectID string, userID int64, r
 func bindAssistantMCP(server domain.MCPServerDefinition, user domain.User) (domain.MCPServerDefinition, error) {
 	bundle := domain.AgentAssetBundle{MCPServers: []domain.MCPServerDefinition{server}}
 	var githubErr error
-	bundle, githubErr = runtime.BindGitHubMCPHeaders(bundle, user.GitToken, true)
+	bundle, githubErr = runtime.BindGitHubMCPHeaders(bundle, user.GitTokenFor(domain.GitProviderGitHub), true)
 	if githubErr != nil {
 		return domain.MCPServerDefinition{}, githubErr
 	}
@@ -393,7 +393,11 @@ func bindAssistantMCP(server domain.MCPServerDefinition, user domain.User) (doma
 }
 
 func redactAssistantSecrets(text string, user domain.User) string {
-	for _, secret := range []string{user.CodeBuddyAPIKey, user.CodexAPIKey, user.ClaudeCodeAPIKey, user.GitToken} {
+	secrets := []string{user.CodeBuddyAPIKey, user.CodexAPIKey, user.ClaudeCodeAPIKey, user.GitToken}
+	for _, token := range user.GitTokens {
+		secrets = append(secrets, token)
+	}
+	for _, secret := range secrets {
 		secret = strings.TrimSpace(secret)
 		if secret != "" {
 			text = strings.ReplaceAll(text, secret, "[redacted]")

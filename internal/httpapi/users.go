@@ -39,6 +39,16 @@ func (h *usersHandlers) user(c *gin.Context) {
 	if !decode(c, &body) {
 		return
 	}
+	// A git token names its platform, so a Codeup paste lands in the Codeup slot
+	// instead of overwriting the GitHub one.
+	if raw := strings.TrimSpace(body.GitTokenProvider); raw != "" {
+		provider := domain.NormalizeGitProvider(raw)
+		if provider == "" {
+			c.JSON(http.StatusBadRequest, map[string]string{"error": "令牌所属平台只能是 github、gongfeng 或 codeup"})
+			return
+		}
+		body.GitTokenProvider = provider
+	}
 	if raw := body.CodeBuddyInternetEnvironment; raw != nil {
 		environment, ok := domain.NormalizeCodeBuddyInternetEnvironment(*raw)
 		if !ok {

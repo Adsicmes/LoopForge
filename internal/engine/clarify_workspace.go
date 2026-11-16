@@ -122,3 +122,9 @@ func refreshClarifyWorkspace(ctx context.Context, cacheDir, cloneURL, baseBranch
 func ResolveClarifyGitToken(s *repo.Store, responsibleUserID int64) string {
 	return resolveGitToken(s, responsibleUserID)
 }
+
+// ResolveClarifyGitTokenFor resolves the token of the repository's platform,
+// so a Codeup checkout does not try the GitHub token.
+func ResolveClarifyGitTokenFor(s *repo.Store, responsibleUserID int64, provider string) string {
+	return resolveGitTokenFor(s, responsibleUserID, provider)
+}

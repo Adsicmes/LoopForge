@@ -16,9 +16,11 @@ test('GitHub authorization stays in one credential row with a separate manual pa
   const capability=await page.request.get('/api/auth/github').then(response=>response.json());
   await page.goto('/#/settings');
   await expect(page.locator('#personalSettingsContent > .personal-settings-card')).toHaveCount(0);
-  // The row covers every hosting platform (GitHub, 工蜂, 云效), so it is named 代码仓库.
-  await expect(page.locator('[data-credential-row="gitToken"]')).toContainText('代码仓库');
+  // 每个代码托管平台各占一行，令牌互不覆盖。
+  await expect(page.locator('[data-credential-row="gitToken"]')).toContainText('GitHub');
   await expect(page.locator('[data-credential-row="gitToken"]')).toContainText('仓库授权');
+  await expect(page.locator('[data-credential-row="gitTokenCodeup"]')).toContainText('云效');
+  await expect(page.locator('[data-credential-row="gitTokenGongfeng"]')).toContainText('工蜂');
   await page.screenshot({path:info.outputPath('github-settings.png'),fullPage:true});
   await page.locator('[data-credential-row="gitToken"] [data-credential-act="setup"]').click();
   const wizard=page.locator('#credentialWizard');

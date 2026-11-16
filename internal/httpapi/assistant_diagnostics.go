@@ -411,6 +411,9 @@ var (
 
 func sanitizeAssistantDiagnostic(text string, user domain.User, limit int) string {
 	secrets := []string{user.CodeBuddyAPIKey, user.CodexAPIKey, user.ClaudeCodeAPIKey, user.GitToken, user.GongfengRefreshToken}
+	for _, token := range user.GitTokens {
+		secrets = append(secrets, token)
+	}
 	for _, credential := range user.AgentCLICredentials {
 		secrets = append(secrets, credential.APIKey)
 	}

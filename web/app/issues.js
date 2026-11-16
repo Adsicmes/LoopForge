@@ -623,13 +623,15 @@ function renderRepositoryCredentialHint(){
   host.sshHintVersion=(host.sshHintVersion||0)+1;
   host.hidden=false;
   host.removeAttribute('role');
-  const configured=!!user.gitTokenConfigured;
-  const title=configured?'已配置 GitHub Token':'仓库可以先保存，代码任务还需要 Token';
-  const message=configured?'请确认 Token 已获得目标仓库的访问和写入权限。SOP 使用需求责任人的 Token，未指定时使用项目 Owner 的 Token。':'使用仓库进行需求分析、访问私有代码或提交 PR 前，请先配置 GitHub Token。SOP 使用需求责任人的 Token，未指定时使用项目 Owner 的 Token。';
+  const platform=remote?.provider==='codeup'?'codeup':remote?.provider==='gongfeng'?'gongfeng':'github';
+  const platformLabel={github:'GitHub',codeup:'云效 Codeup',gongfeng:'工蜂'}[platform]||'GitHub';
+  const configured=(user.gitTokenProviders||[]).includes(platform);
+  const title=configured?`已配置 ${platformLabel} Token`:'仓库可以先保存，代码任务还需要 Token';
+  const message=configured?'请确认 Token 已获得目标仓库的访问和写入权限。SOP 使用需求责任人的 Token，未指定时使用项目 Owner 的 Token。':`使用仓库进行需求分析、访问私有代码或提交 PR 前，请先配置 ${platformLabel} Token。SOP 使用需求责任人的 Token，未指定时使用项目 Owner 的 Token。`;
   host.dataset.configured=String(configured);
-  host.innerHTML=`<div><b>${escapeHTML(title)}</b><p>${escapeHTML(message)}</p></div><button type="button" class="button ghost small" data-repository-configure-token>${configured?'个人设置':'配置 GitHub Token'}</button>`;
+  host.innerHTML=`<div><b>${escapeHTML(title)}</b><p>${escapeHTML(message)}</p></div><button type="button" class="button ghost small" data-repository-configure-token>${configured?'个人设置':'配置 '+escapeHTML(platformLabel)+' Token'}</button>`;
   host.querySelector('[data-repository-configure-token]').onclick=()=>{
-    $('#repositoryModal').classList.remove('open');gotoCredential('gitToken');
+    $('#repositoryModal').classList.remove('open');gotoCredential(platform==='codeup'?'gitTokenCodeup':platform==='gongfeng'?'gitTokenGongfeng':'gitToken');
   };
 }
 function renderRepositoryList(){renderRepositoryCredentialHint();const project=(state.data.projects||[]).find(p=>p.id===state.projectFilter),repos=(state.data.repositories||[]).filter(r=>r.projectId===state.projectFilter);$('#repositoryProjectHint').textContent=`当前项目：${project?.name||'—'}。粘贴 GitHub 链接或 Git SSH 地址；集成分支用于检查多个 SOP 执行后是否存在合并冲突，可留空。`;$('#repositoryList').innerHTML=repos.map(r=>`<button type="button" data-edit-repo="${escapeHTML(r.id)}"><b>${escapeHTML(r.name)}</b><span>${escapeHTML(r.gongfengProjectId||r.cloneUrl)} · 主分支 ${escapeHTML(r.defaultBranch||'master')} · 集成分支 ${escapeHTML(r.integrateBranch||'未配置')}</span><em>${project?.defaultRepositoryId===r.id?'默认仓库':'编辑'}</em></button>`).join('')||'<p>当前项目还没有绑定代码仓库。</p>';$('#repositoryList').querySelectorAll('[data-edit-repo]').forEach(b=>b.onclick=()=>fillRepositoryForm((state.data.repositories||[]).find(r=>r.id===b.dataset.editRepo)))}

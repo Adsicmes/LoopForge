@@ -24,6 +24,7 @@ type userWithConfig struct {
 	DeptName                     string     `gorm:"column:dept_name"`
 	PlatformRole                 string     `gorm:"column:platform_role"`
 	GitToken                     *string    `gorm:"column:git_token"`
+	GitTokens                    *string    `gorm:"column:git_tokens"`
 	GitSSHKeyConfigured          bool       `gorm:"column:git_ssh_key_configured"`
 	GongfengRefreshToken         *string    `gorm:"column:gongfeng_refresh_token"`
 	GongfengTokenExpiresAt       *time.Time `gorm:"column:gongfeng_token_expires_at"`
@@ -42,7 +43,7 @@ type userWithConfig struct {
 
 const userSelectColumns = `u.id, u.staff_id, u.login_name, u.chinese_name, u.dept_id, u.dept_name,
 	COALESCE(u.platform_role, '') AS platform_role,
-	c.git_token, EXISTS (SELECT 1 FROM user_git_ssh_keys k WHERE k.user_id = u.id) AS git_ssh_key_configured,
+	c.git_token, c.git_tokens, EXISTS (SELECT 1 FROM user_git_ssh_keys k WHERE k.user_id = u.id) AS git_ssh_key_configured,
 	c.gongfeng_refresh_token, c.gongfeng_token_expires_at, c.codebuddy_api_key, COALESCE(c.codebuddy_internet_environment, '') AS codebuddy_internet_environment,
 	c.codex_api_key, c.codex_base_url, c.codex_models, c.claude_code_api_key, c.claude_code_base_url, c.claude_code_models,
 	c.agent_cli_credentials,
@@ -58,6 +59,7 @@ func (r userWithConfig) toDomain() domain.User {
 	if r.GitToken != nil {
 		u.GitToken = *r.GitToken
 	}
+	u.GitTokens = decodeGitTokens(r.GitTokens)
 	if r.GongfengRefreshToken != nil {
 		u.GongfengRefreshToken = *r.GongfengRefreshToken
 	}
@@ -154,6 +156,7 @@ func (r *UsersRepo) PutUser(v domain.User) error {
 		// Authentication refreshes identity fields only. Credentials are managed
 		// through UpdateUserCredentials and must survive every login refresh.
 		v.GitToken = old.GitToken
+		v.GitTokens = old.GitTokens
 		v.GongfengRefreshToken = old.GongfengRefreshToken
 		v.GongfengTokenExpiresAt = old.GongfengTokenExpiresAt
 		v.CodexAPIKey, v.CodexBaseURL, v.CodexModels = old.CodexAPIKey, old.CodexBaseURL, old.CodexModels
@@ -224,7 +227,7 @@ func (r *UsersRepo) writeUser(v domain.User) (domain.User, error) {
 }
 
 func userHasConfig(user domain.User) bool {
-	return user.GitToken != "" ||
+	return user.GitToken != "" || len(user.GitTokens) > 0 ||
 		user.GongfengRefreshToken != "" ||
 		user.CodeBuddyAPIKey != "" ||
 		user.CodeBuddyInternetEnvironment != "" ||
@@ -240,6 +243,9 @@ func userHasConfig(user domain.User) bool {
 type UserCredentialUpdate struct {
 	GitToken                     string             `json:"gitToken"`
 	GitTokenClear                bool               `json:"gitTokenClear"`
+	// GitTokenProvider names the platform the GitToken belongs to. Empty keeps
+	// the pre-multi-provider behaviour of writing the GitHub slot.
+	GitTokenProvider             string             `json:"gitTokenProvider"`
 	CodeBuddyAPIKey              string             `json:"codeBuddyApiKey"`
 	CodeBuddyAPIKeyClear         bool               `json:"codeBuddyApiKeyClear"`
 	CodeBuddyInternetEnvironment *string            `json:"codeBuddyInternetEnvironment"`
@@ -269,16 +275,23 @@ func (r *UsersRepo) UpdateUserCredentials(id int64, update UserCredentialUpdate)
 	if !ok {
 		return domain.User{}, errors.New("user not found")
 	}
+	// An unprefixed write targets whichever platform the default credential
+	// resolves to (a 工蜂 grant owns the default slot, otherwise GitHub), so
+	// pre-multi-provider callers keep replacing the token they would have used.
+	platform := update.GitTokenProvider
+	if domain.NormalizeGitProvider(platform) == "" {
+		if user.GongfengRefreshToken != "" || strings.TrimSpace(user.GitTokens[domain.GitProviderGongfeng]) != "" {
+			platform = domain.GitProviderGongfeng
+		} else {
+			platform = domain.GitProviderGitHub
+		}
+	}
 	if update.GitTokenClear {
-		user.GitToken = ""
-		user.GongfengRefreshToken = ""
-		user.GongfengTokenExpiresAt = time.Time{}
+		user.ClearGitToken(platform)
 	} else if value := strings.TrimSpace(update.GitToken); value != "" {
-		user.GitToken = value
-		// A pasted personal access token replaces an OAuth grant. Leaving the
-		// refresh token in place would overwrite the paste on the next use.
-		user.GongfengRefreshToken = ""
-		user.GongfengTokenExpiresAt = time.Time{}
+		// A pasted personal access token replaces an OAuth grant on the same
+		// platform. Other platforms keep their own tokens.
+		user.SetGitToken(platform, value)
 	}
 	if update.CodeBuddyAPIKeyClear {
 		user.CodeBuddyAPIKey = ""
@@ -335,7 +348,7 @@ func (r *UsersRepo) SaveGongfengOAuth(id int64, accessToken, refreshToken string
 	if !ok {
 		return domain.User{}, errors.New("user not found")
 	}
-	user.GitToken = strings.TrimSpace(accessToken)
+	user.SetGitToken(domain.GitProviderGongfeng, strings.TrimSpace(accessToken))
 	user.GongfengRefreshToken = strings.TrimSpace(refreshToken)
 	user.GongfengTokenExpiresAt = expiresAt.UTC()
 	user.UpdatedAt = time.Now().UTC()
@@ -349,6 +362,7 @@ func (r *UsersRepo) writeUserConfig(v domain.User) error {
 	values := map[string]any{
 		"user_id":                v.ID,
 		"git_token":              nullableString(v.GitToken),
+		"git_tokens":             encodeGitTokens(v.GitTokens),
 		"gongfeng_refresh_token": nullableString(v.GongfengRefreshToken), "gongfeng_token_expires_at": timePtr(v.GongfengTokenExpiresAt),
 		"codebuddy_api_key":              nullableString(v.CodeBuddyAPIKey),
 		"codebuddy_internet_environment": v.CodeBuddyInternetEnvironment,
@@ -438,6 +452,42 @@ const (
 	maxCLIModelIDLen    = 128
 	maxCLIModelNameRune = 64
 )
+
+// decodeGitTokens reads the per-platform token map. A row written before
+// tokens were kept per platform has no map; domain.User.GitTokenFor falls
+// back to the legacy column for those.
+func decodeGitTokens(raw *string) map[string]string {
+	if raw == nil || strings.TrimSpace(*raw) == "" {
+		return nil
+	}
+	tokens := map[string]string{}
+	if json.Unmarshal([]byte(*raw), &tokens) != nil {
+		return nil
+	}
+	out := make(map[string]string, len(tokens))
+	for provider, token := range tokens {
+		platform := domain.NormalizeGitProvider(provider)
+		if platform == "" || strings.TrimSpace(token) == "" {
+			continue
+		}
+		out[platform] = strings.TrimSpace(token)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func encodeGitTokens(tokens map[string]string) any {
+	if len(tokens) == 0 {
+		return nil
+	}
+	raw, err := json.Marshal(tokens)
+	if err != nil {
+		return nil
+	}
+	return string(raw)
+}
 
 func decodeCLIModels(raw *string) []domain.CLIModel {
 	if raw == nil || strings.TrimSpace(*raw) == "" {

@@ -105,10 +105,27 @@ func applyWorkspaceGitIdentity(ctx context.Context, workspace string) error {
 }
 
 func resolveGitToken(s *repo.Store, userID int64) string {
+	return resolveGitTokenFor(s, userID, "")
+}
+
+// resolveGitTokenFor reads the token of one hosting platform, so a Codeup
+// repository and a GitHub repository can belong to the same user at once.
+func resolveGitTokenFor(s *repo.Store, userID int64, provider string) string {
 	if s != nil && userID > 0 {
-		return s.GitCredential(context.Background(), userID)
+		return s.GitCredentialFor(context.Background(), userID, provider)
 	}
 	return ""
+}
+
+// resolveRunGitToken picks the token of the platform the run's repositories
+// live on, and falls back to the user's default token when nothing names one.
+func resolveRunGitToken(s *repo.Store, run domain.Run, userID int64) string {
+	for _, repository := range run.RepositoryContexts() {
+		if provider := domain.GitProviderForRepositoryContext(repository); provider != "" {
+			return resolveGitTokenFor(s, userID, provider)
+		}
+	}
+	return resolveGitToken(s, userID)
 }
 
 var (

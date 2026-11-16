@@ -152,39 +152,44 @@ test('a GitHub repository shows no Codeup webhook panel', async (t) => {
   assert.equal(app.document.querySelector('#repoDrawerWebhook').hidden, true);
 });
 
-test('the Git token wizard lets a Codeup PAT be saved without any repository', async (t) => {
+test('云效 token has its own row and does not share the GitHub slot', async (t) => {
   const app = await loadApp();
   t.after(app.close);
   app.evaluate(`
     state.data.users[0].id=1;
-    state.currentUser={...state.data.users[0],id:1,isGuest:false,gitTokenConfigured:false};
+    state.currentUser={...state.data.users[0],id:1,isGuest:false,gitTokenConfigured:true,gitTokenProviders:['github']};
     state.data.users[0]=state.currentUser;
     state.data.repositories=[];
     renderPersonalSettings();
   `);
-  const row = app.document.querySelector('[data-credential-row="gitToken"]');
+  const row = app.document.querySelector('[data-credential-row="gitTokenCodeup"]');
+  assert.ok(row, '云效 must have its own credential row');
+  assert.match(row.textContent, /云效/);
   row.querySelector('[data-credential-act="setup"]').click();
   await settle(4);
-  // No OAuth for Codeup, so the manual token pane must be reachable and offer the platform choice.
-  app.document.querySelector('[data-github-method="manual"]').click();
-  await settle(2);
-  const select = app.document.querySelector('#credentialWizard select[name="gitProvider"]');
-  assert.ok(select, 'the token pane must offer a platform choice');
-  assert.deepEqual([...select.options].map((option) => option.value), ['github', 'codeup', 'gongfeng']);
-  select.value = 'codeup';
-  select.dispatchEvent(new app.window.Event('input', { bubbles: true }));
-  await settle(2);
-  const input = app.document.querySelector('#credentialWizard [name="secret"]');
+  const wizard = app.document.querySelector('#credentialWizard');
+  assert.ok(wizard, 'the setup wizard must open');
+  // 云效 has no OAuth path, so the token pane is shown straight away.
+  assert.equal(wizard.querySelector('[data-github-method="oauth"]'), null);
+  const input = wizard.querySelector('[name="secret"]');
+  assert.ok(input, 'token field must be present');
   input.value = 'codeup-pat';
   input.dispatchEvent(new app.window.Event('input', { bubbles: true }));
   app.router.post('/api/users/1/git-token/verify', () => ({ valid: true, provider: 'codeup', scopes: ['repo:read'] }));
-  app.router.put('/api/users/1/credentials', { id: 1, loginName: 'owner', gitTokenConfigured: true });
-  app.document.querySelector('#credentialWizard [data-wizard-next]').click();
+  app.router.put('/api/users/1/credentials', { id: 1, loginName: 'owner', gitTokenConfigured: true, gitTokenProviders: ['github', 'codeup'] });
+  wizard.querySelector('[data-wizard-next]').click();
   await settle(4);
-  app.document.querySelector('#credentialWizard [data-wizard-next]').click();
-  await settle(6);
-  const call = app.router.calls.find((c) => c.path === '/api/users/1/git-token/verify');
+  wizard.querySelector('[data-wizard-next]').click();
+  let call = null;
+  for (let attempt = 0; attempt < 20 && !call; attempt += 1) {
+    await settle(2);
+    call = app.router.calls.find((c) => c.method === 'POST' && c.path === '/api/users/1/git-token/verify');
+  }
   assert.ok(call, 'verify must be called');
   assert.equal(call.body.provider, 'codeup');
   assert.equal(call.body.token, 'codeup-pat');
+  const save = app.router.calls.find((c) => c.method === 'PUT' && c.path === '/api/users/1/credentials');
+  assert.equal(save.body.gitTokenProvider, 'codeup');
+  assert.equal(save.body.gitToken, 'codeup-pat');
+  assert.equal(save.body.gitTokenClear, undefined);
 });

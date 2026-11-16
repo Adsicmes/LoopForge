@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -84,7 +85,7 @@ func LookupCodeBuddyCredentialReadOnly(ctx context.Context, dsn, login string) (
 SELECT COALESCE(u.staff_id, 0), COALESCE(u.chinese_name, ''), COALESCE(u.dept_id, 0), COALESCE(u.dept_name, ''),
        COALESCE(c.codebuddy_api_key, ''),
        COALESCE(c.codebuddy_internet_environment, ''),
-       COALESCE(c.git_token, '')
+       COALESCE(NULLIF(c.git_tokens, ''), COALESCE(c.git_token, ''))
   FROM users u
   LEFT JOIN user_configs c ON c.user_id = u.id
  WHERE u.login_name = ?
@@ -97,6 +98,20 @@ SELECT COALESCE(u.staff_id, 0), COALESCE(u.chinese_name, ''), COALESCE(u.dept_id
 	}
 	if err != nil {
 		return AssistantAcceptanceIdentity{}, fmt.Errorf("lookup %s: %w", login, err)
+	}
+	// git_tokens is a JSON map once a user stores more than one platform; the
+	// check below only needs to know a token exists.
+	if raw := strings.TrimSpace(ident.GitToken); strings.HasPrefix(raw, "{") {
+		var tokens map[string]string
+		if json.Unmarshal([]byte(raw), &tokens) == nil {
+			ident.GitToken = ""
+			for _, token := range tokens {
+				if strings.TrimSpace(token) != "" {
+					ident.GitToken = strings.TrimSpace(token)
+					break
+				}
+			}
+		}
 	}
 	ident.GitToken = strings.TrimSpace(ident.GitToken)
 	if strings.TrimSpace(ident.CodeBuddyAPIKey) == "" {

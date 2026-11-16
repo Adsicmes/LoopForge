@@ -52,15 +52,16 @@ const escapeHTML=v=>String(v),userAvatarHTML=()=>'',userDisplay=()=>'Alice',load
 const toasts=[];const toast=(message,kind)=>toasts.push({message,kind});
 let view='runs';const activeViewName=()=>view;
 const calls=[];
-const api=async(path)=>{calls.push(path);if(path==='/api/users')return [{id:1,gitTokenConfigured:true,gitTokenOAuth:true}];if(path.includes('/git-token/verify'))return {valid:true,scopes:['read_repository','write_repository']};return {}};
+const api=async(path)=>{calls.push(path);if(path==='/api/users')return [{id:1,gitTokenConfigured:true,gitTokenOAuth:true,gitTokenProviders:['gongfeng']}];if(path.includes('/git-token/verify'))return {valid:true,scopes:['read_repository','write_repository']};return {}};
 const channels=[];
 class BroadcastChannel{constructor(name){this.name=name;channels.push(this)}close(){}}
 let panelRenders=0,replacedRow='',progress='',filter='';
 const unsaved={value:'typed-but-unsaved'};
 const main={replaceWith(){}};
 const row={classList:{contains:name=>name==='is-configured'&&!!replacedRow},replaceWith(next){replacedRow=next.html},querySelector(s){return s==='.credential-row-main'?main:null}};
-const panel={set innerHTML(v){panelRenders++},querySelector(s){return {'[data-credential-row="gitToken"]':row,'.credential-progress':{set innerHTML(v){progress=v}},'.credential-filter':{set innerHTML(v){filter=v}}}[s]??null},querySelectorAll:()=>[]};
-const $=s=>({'#credentialPanel':panel,'[data-credential-row="gitToken"]':row,'#credentialPanel [data-credential-row="gitToken"]':row}[s]??null);
+const panelQuery={'[data-credential-row="gitToken"]':row,'[data-credential-row="gitTokenGongfeng"]':row,'.credential-progress':{set innerHTML(v){progress=v}},'.credential-filter':{set innerHTML(v){filter=v}}};
+const panel={set innerHTML(v){panelRenders++},querySelector(s){return panelQuery[s]??null},querySelectorAll:()=>[]};
+const $=s=>({'#credentialPanel':panel,'[data-credential-row="gitToken"]':row,'[data-credential-row="gitTokenGongfeng"]':row,'#credentialPanel [data-credential-row="gitToken"]':row,'#credentialPanel [data-credential-row="gitTokenGongfeng"]':row}[s]??null);
 const document={createElement(){const holder={set innerHTML(v){holder.firstElementChild={html:v}}};return holder},querySelectorAll:()=>[]};
 const window={};
 eval(code.slice(code.indexOf('const CREDENTIAL_GROUPS='),code.indexOf('// 谁能改通用模板')));
@@ -74,7 +75,7 @@ eval(code.slice(code.indexOf('const CREDENTIAL_GROUPS='),code.indexOf('// 谁能
  channel.onmessage({data:{type:'something-else'}});await flush();
  assert.deepEqual(calls,[],'only the completion message counts');
  channel.onmessage({data:{type:'gongfeng-oauth-completed'}});await flush();
- assert.deepEqual(calls,['/api/users','/api/users/1/git-token/verify?provider=github']);
+ assert.deepEqual(calls,['/api/users','/api/users/1/git-token/verify?provider=gongfeng']);
  assert.equal(panelRenders,0,'the panel must not be re-rendered');
  assert.equal(unsaved.value,'typed-but-unsaved');
  assert.equal(view,'settings');
@@ -82,9 +83,9 @@ eval(code.slice(code.indexOf('const CREDENTIAL_GROUPS='),code.indexOf('// 谁能
  assert.ok(progress.includes('<b>1</b>'));
  assert.ok(filter.includes('已配置<span>1</span>'));
  assert.equal(state.data.users[0].gitTokenOAuth,true);
- assert.equal(state.gitTokenVerify.result.valid,true);
+ assert.equal(gitTokenVerifyFor(state.currentUser,'gongfeng').result.valid,true);
  assert.ok(toasts.some(t=>t.message.includes('工蜂授权已保存')));
- assert.equal(toasts.at(-1).message,'Git 令牌校验通过');
+ assert.equal(toasts.at(-1).message,'工蜂 令牌校验通过');
  // Guests have no panel to patch, so a late signal touches nothing.
  state.currentUser={isGuest:true};calls.length=0;
  channel.onmessage({data:{type:'gongfeng-oauth-completed'}});await flush();
