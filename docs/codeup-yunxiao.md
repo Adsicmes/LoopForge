@@ -82,13 +82,58 @@ MR 状态到平台状态的映射（`internal/tracker/codeup.go`）：
 - **令牌 scope 不可查**：只能靠"能否解析出用户"判断有效性。
 - 云效的 MR 叫 change request；控制台里的"代码评审"就是这一层。
 
-## 6. 待办（尚未实现）
+## 6. UI、导入与 Webhook
 
-- Web UI：仓库表单的 provider 选择器、令牌校验按仓库 provider 传参（后端接口已支持 `?provider=codeup`）。
-- 仓库选择器：用 `ListRepositories` 做下拉，而不是让用户手填路径。
-- 工作项导入：把 `SearchWorkItems` 接到 issue 导入流程（`Source: "codeup"`），对照 GitHub issue 导入的字段映射。
-- 交付链接回写：在 MR 描述里带上 LoopForge run 链接。
-- Webhook：Codeup 支持推送/评审事件回调，可用于替代轮询刷新交付状态。
+### 6.1 仓库选择器
+
+- `GET /api/codeup/repositories?org=&search=&page=` 用调用者的个人访问令牌按组织列仓库。
+  组织 ID 可显式传，也可从 `?repo=<地址>` 推导；令牌被拒返回 401 而不是空列表。
+- 前端 `web/app/codeup-connect.js` 的 `mountCodeupRepoPicker(host, onSelect, {getAddress})`
+  挂在项目向导和仓库抽屉中 GitHub 选择器旁边。组织 ID 会自动从已经输入的地址带出，
+  选中仓库后回填地址与主分支。
+- `parseCodeupRepoURL` 放在通用 SSH 识别**之前**：`git@codeup.aliyun.com:` 如果落进
+  「纯 SSH 仓库」，就再也建不了合并请求了，所以 Codeup 地址一律归到 PAT 路线。
+  它同时吃掉 HTTPS / SSH / `codeup:` 简写 / 网页子页面（`/tree/`、`/change/` 等）。
+
+### 6.2 令牌校验
+
+`/api/users/:id/git-token/verify` 接受 `provider`（query 或 body），响应里回显
+`provider` 字段。前端按当前可见仓库推断：只有 Codeup 仓库时校验云效，其余默认 GitHub。
+`?provider=gongfeng` 也接到了原本没有调用方的工蜂校验函数。
+
+### 6.3 工作项导入
+
+- `POST /api/issues/import-codeup` `{projectId, identifier, spaceId?, repositoryIds, baseBranch?}`
+- 编号是用户记得住的东西（`DEMO-12`）；Projex 工作项链接里带的是内部 space id，所以
+  `spaceId` 可选，缺省按令牌可访问范围搜索。编号大小写不敏感，落库用 API 返回的规范编号。
+- **一次性拉取**，不像 TAPD 导入那样保留同步绑定：这里云效只是需求来源，存的
+  `externalRef` 只读，用于追溯来源。
+- 必须绑定一个已导入的 Codeup 仓库（决定组织），跨项目仓库直接拒绝。
+- 前端：需求页「导入云效工作项」→ 弹窗（编号 / 可选 space / 仓库多选 / 可选继续开发分支）。
+
+### 6.4 交付链接回写
+
+`integrateMRDescription` 在配置了 `AGENTFLOW_PUBLIC_URL` 时把 `- run: <id>` 写成
+`- run: [<id>](<base>/#/runs/<id>)`；没配置就保留纯 ID，不臆造地址。基线对齐 MR 同样处理。
+
+### 6.5 Webhook（替代轮询）
+
+- `POST /api/repositories/:id/webhook-secret` 生成密钥（返回一次），`DELETE` 清除。
+  密钥存在仓库行里但不对外序列化，普通编辑仓库时由后端保留，不会被清掉。
+- `POST /api/webhooks/codeup/:id` 是免登录路由（Codeup 没有 cookie），只认
+  `X-Codeup-Token` 头与该仓库密钥的常量时间比较；不匹配 401，未配置 403。
+- 收包后**不解析事件语义**：Codeup 各事件体不同版本，刷新只需要知道是哪个仓库动了。
+  事件名只用于日志。响应当场返回 200（Codeup 对慢/非 2xx 会重试，刷新本身幂等），
+  刷新在后台按 `RefreshCodeupRepositoryDeliveries` 立刻重读该仓库全部 MR 的交付状态，
+  不受轮询的 staleness 窗口限制。
+- Codeup 侧配置：仓库「设置 → Webhooks」，URL 填回调地址，Secret Token 填密钥，
+  勾选「合并请求事件」。
+
+## 7. 待办（尚未实现）
+
+- MR 列表翻页：长时间高频开 MR 的仓库可能漏掉更早的分支。
+- 合并时间戳：change-request 详情不返回 merged_at，交付记录用轮询/回调时刻近似。
+- 工作项写回：目前只读导入，不回写云效状态。
 
 ## 7. 测试
 
@@ -96,6 +141,9 @@ MR 状态到平台状态的映射（`internal/tracker/codeup.go`）：
 go test ./internal/domain/ -run Codeup -count=1
 go test ./internal/codeup/ -count=1
 go test ./internal/tracker/ -run Codeup -count=1
+go test ./internal/engine/ -run MRDescription -count=1
+go test ./internal/httpapi/ -run "Codeup" -count=1
+npm --prefix webtest test
 ```
 
 测试用 `httptest` 起假 OpenAPI，覆盖：令牌头、组织级路径、全路径 URL 编码、建 MR 必填字段、
