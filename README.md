@@ -248,6 +248,7 @@ New installations listen on all interfaces and target a trusted team. Read the [
 | Contribute to the UI | [Frontend design conventions](design.md) (Chinese) |
 | Check functional coverage and release readiness | [Validation record](docs/validation.md) · [Acceptance matrix](docs/testing/acceptance-matrix.md) · [Release review](docs/release-readiness.md) |
 | Understand source provenance and maintenance | [Public scope](docs/open-source-scope.md) · [Upstream synchronization](docs/upstream-sync.md) |
+| Host repositories on Aliyun Codeup (云效) | [Codeup / Yunxiao integration](docs/codeup-yunxiao.md) |
 
 ## Community
 
