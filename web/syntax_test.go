@@ -982,6 +982,17 @@ func TestRepositoryFormUsesSingleURL(t *testing.T) {
 	script := `
 const assert = require('node:assert/strict');
 const code = require('node:fs').readFileSync('` + appBundlePath(t) + `', 'utf8');
+const codeupStart = code.indexOf('function parseCodeupRepoURL(');
+if (codeupStart >= 0) {
+  eval(code.slice(codeupStart, code.indexOf('function parseGongfengRepoURL(')));
+  const c = parseCodeupRepoURL('https://codeup.aliyun.com/60de7a6852743a5162b5f957/group/sub/repo');
+  assert.equal(c.project, 'codeup:60de7a6852743a5162b5f957/group/sub/repo');
+  assert.equal(c.cloneUrl, 'https://codeup.aliyun.com/60de7a6852743a5162b5f957/group/sub/repo.git');
+  assert.equal(c.provider, 'codeup');
+  assert.equal(parseCodeupRepoURL('git@codeup.aliyun.com:60de7a6852743a5162b5f957/group/repo.git').name, 'repo');
+  assert.equal(parseCodeupRepoURL('https://codeup.aliyun.com/60de7a6852743a5162b5f957/group/repo/tree/master').project, 'codeup:60de7a6852743a5162b5f957/group/repo');
+  assert.equal(parseCodeupRepoURL('https://git.example.com/example/agent-flow'), null);
+}
 eval(code.slice(code.indexOf('function parseGongfengRepoURL(raw){'), code.indexOf('function fillRepositoryFromLink(')));
 const web = parseGongfengRepoURL('https://git.example.com/example/agent-flow');
 assert.equal(web.project, 'example/agent-flow');

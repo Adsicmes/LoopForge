@@ -52,7 +52,7 @@ const api=async(path,options={})=>{
   if(path==='/api/auth/gongfeng')return {enabled:false};
   return result;
 };
-const verifyCalls=()=>calls.filter(c=>c.path.endsWith('/git-token/verify'));
+const verifyCalls=()=>calls.filter(c=>c.path.includes('/git-token/verify'));
 const putCalls=()=>calls.filter(c=>c.method==='PUT');
 const panel={innerHTML:'',classList:{remove(){}},querySelectorAll:()=>[]};
 const host={innerHTML:'',querySelector(selector){return {'#credentialPanel':panel}[selector]??null},querySelectorAll:()=>[]};
@@ -113,7 +113,7 @@ const gitToken=cred.kind('gitToken');
  assert.equal(failed.saved,false);
  const typed=verifyCalls().at(-1);
  assert.equal(typed.method,'POST');
- assert.deepEqual(JSON.parse(typed.body),{token:'typed-pat'});
+ assert.deepEqual(JSON.parse(typed.body),{token:'typed-pat',provider:'github'});
  assert.equal(putCalls().length,0,'an invalid token must not be saved');
  // A verified token is saved alone and the verification is kept as the row status.
  result={valid:true,scopes:['api','read_repository','write_repository']};

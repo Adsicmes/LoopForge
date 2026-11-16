@@ -749,7 +749,7 @@ async function refreshGitTokenStatus(options={}){
   repaintCredentialRow('gitToken');
   const announce=options.announce||state.gitTokenAnnounceVerify;
   state.gitTokenAnnounceVerify=false;
-  if(announce){const failure=gitTokenFailure(result),label=gitTokenProviderLabel(result);toast(failure||`${label?label+' ':''}令牌校验通过`,failure?'err':'ok')}
+  if(announce){const failure=gitTokenFailure(result),label=gitTokenProviderLabel(result);toast(failure||`${label||'Git'} 令牌校验通过`,failure?'err':'ok')}
   return result;
 }
 function credentialSaved(key,message){

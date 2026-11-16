@@ -52,7 +52,7 @@ const escapeHTML=v=>String(v),userAvatarHTML=()=>'',userDisplay=()=>'Alice',load
 const toasts=[];const toast=(message,kind)=>toasts.push({message,kind});
 let view='runs';const activeViewName=()=>view;
 const calls=[];
-const api=async(path)=>{calls.push(path);if(path==='/api/users')return [{id:1,gitTokenConfigured:true,gitTokenOAuth:true}];if(path.endsWith('/git-token/verify'))return {valid:true,scopes:['read_repository','write_repository']};return {}};
+const api=async(path)=>{calls.push(path);if(path==='/api/users')return [{id:1,gitTokenConfigured:true,gitTokenOAuth:true}];if(path.includes('/git-token/verify'))return {valid:true,scopes:['read_repository','write_repository']};return {}};
 const channels=[];
 class BroadcastChannel{constructor(name){this.name=name;channels.push(this)}close(){}}
 let panelRenders=0,replacedRow='',progress='',filter='';
@@ -74,7 +74,7 @@ eval(code.slice(code.indexOf('const CREDENTIAL_GROUPS='),code.indexOf('// 谁能
  channel.onmessage({data:{type:'something-else'}});await flush();
  assert.deepEqual(calls,[],'only the completion message counts');
  channel.onmessage({data:{type:'gongfeng-oauth-completed'}});await flush();
- assert.deepEqual(calls,['/api/users','/api/users/1/git-token/verify']);
+ assert.deepEqual(calls,['/api/users','/api/users/1/git-token/verify?provider=github']);
  assert.equal(panelRenders,0,'the panel must not be re-rendered');
  assert.equal(unsaved.value,'typed-but-unsaved');
  assert.equal(view,'settings');
