@@ -39,5 +39,8 @@ func ParseRepositoryURL(raw string) (GongfengRepoInfo, bool) {
 		base := "https://github.com/" + path
 		return GongfengRepoInfo{Project: "github:" + path, Name: strings.TrimSuffix(parts[1], ".git"), WebURL: base, CloneURL: base + ".git"}, true
 	}
+	if info, ok := ParseCodeupRepoURL(raw); ok {
+		return GongfengRepoInfo{Project: info.Project, Name: info.Name, WebURL: info.WebURL, CloneURL: info.CloneURL}, true
+	}
 	return ParseGongfengRepoURL(raw)
 }
