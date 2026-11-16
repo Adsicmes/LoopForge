@@ -240,7 +240,7 @@ exec "$@"
         self.assertIn('pull ghcr.nju.edu.cn/example/chosen:9', log)
         self.assertIn('tag ghcr.nju.edu.cn/example/chosen:9 ghcr.io/example/chosen:9', log)
         self.assertNotIn('example/ignored', log)
-        self.assertNotIn('ghcr.nju.edu.cn/tencent/loopforge', log)
+        self.assertNotIn('ghcr.nju.edu.cn/adsicmes/loopforge', log)
 
     def test_failed_mirror_pull_does_not_retag_or_start(self):
         self.use_compose_file()
@@ -248,7 +248,7 @@ exec "$@"
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('Could not pull', result.stderr)
         log = (self.root / 'docker.log').read_text()
-        self.assertIn('pull ghcr.nju.edu.cn/tencent/loopforge:', log)
+        self.assertIn('pull ghcr.nju.edu.cn/adsicmes/loopforge:', log)
         self.assertNotIn(' tag ', log)
         self.assertNotIn('up -d --no-build', log)
 
@@ -263,7 +263,7 @@ exec "$@"
         self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn('Could not pull', result.stderr)
         log = (self.root / 'docker.log').read_text()
-        self.assertIn('pull ghcr.nju.edu.cn/tencent/loopforge:', log)
+        self.assertIn('pull ghcr.nju.edu.cn/adsicmes/loopforge:', log)
         self.assertNotIn(' tag ', log)
         self.assertNotIn('up -d --no-build', log)
 
@@ -273,7 +273,7 @@ exec "$@"
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('Could not tag', result.stderr)
         log = (self.root / 'docker.log').read_text()
-        self.assertIn('pull ghcr.nju.edu.cn/tencent/loopforge:', log)
+        self.assertIn('pull ghcr.nju.edu.cn/adsicmes/loopforge:', log)
         self.assertIn(' tag ', log)
         self.assertNotIn('up -d --no-build', log)
 

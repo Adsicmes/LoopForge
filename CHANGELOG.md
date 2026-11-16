@@ -1,8 +1,14 @@
 # Changelog
 
-Platform releases use `vX.Y.Z` tags and publish `ghcr.io/tencent/loopforge`. LoopForge Local packages use `local-vX.Y.Z` tags and are published by manually running the `release-local` workflow.
+Platform releases use `vX.Y.Z` tags and publish this fork's image as `ghcr.io/adsicmes/loopforge`. LoopForge Local packages use `local-vX.Y.Z` tags and are published by manually running the `release-local` workflow.
 
-## Unreleased
+## 0.3.9-yunxiao.1 — Yunxiao Codeup and Projex support (prerelease)
+
+This is a prerelease for testing the Alibaba Cloud Yunxiao integration. The `latest` and `0.3` image tags stay on 0.3.8; install it with `git clone --branch v0.3.9-yunxiao.1`.
+
+- **Yunxiao Codeup repositories**: bind a `codeup:{org}/{path}` repository, clone and push over SSH, create or reuse a merge request, merge it from a delivery, and refresh its state. A pasted Codeup web URL is stored with its derived SSH clone URL; the personal access token is used only for the OpenAPI.
+- **Yunxiao Projex work items**: pull `Req` and `Bug` work items into a project, preserve local clarification and status, create a work item from a local requirement, and write the clarification summary back as a comment. A scheduled job can filter the `yunxiao` source.
+- **Configuration**: personal Yunxiao access token, platform API base and organization (central station or Region), project space and work-item type IDs, optional status mapping and default assignee. Region installations can set `AGENTFLOW_YUNXIAO_WEB_BASE` for synthesized merge-request links.
 
 - A conversation reply that is still running keeps running through a slow heartbeat. A poll, the conversation list, a follow-up message or a steer used to record it as interrupted after 45 seconds without a stored heartbeat; the process then cancelled the CLI and the next message failed with 「工作区正在使用或保存，请稍后重试」 for up to 15 minutes. Reads of a turn this process executes no longer reap it, and an unchanged heartbeat on MySQL no longer counts as a lost turn. On MySQL a heartbeat's age is measured on the database clock that stamped it, so skew between an API host and MySQL neither reaps a live turn nor keeps a dead one; whether a lease holder stopped renewing is likewise judged from `run_workspace_checkpoints.lease_renewed_at`, stamped on the database clock, not from another replica's `lease_until`. When a turn whose process died is reaped, the workspace lease it recorded is released if nothing renewed it for 45 seconds, so the next message starts at once; a lease another turn took, one still renewed on another replica, and a background save are kept. `migrations/032_assistant_generation_workspace_lease.sql` adds the three columns by hand; startup AutoMigrate adds them too.
 
@@ -24,6 +30,8 @@ Platform releases use `vX.Y.Z` tags and publish `ghcr.io/tencent/loopforge`. Loo
 - Repository clone URLs no longer carry credentials. Saving a `cloneUrl` with a user name or password, such as `https://user:token@github.com/acme/app.git`, is rejected with a pointer to the Git token in personal settings; the repositories API, bootstrap payload, run, task and requirement views, and the runner task management list strip credentials from `cloneUrl` and `webUrl` of rows saved earlier; a `webUrl` with credentials is rejected on save; runner clone errors and redacted Git output mask them. `ssh://git@host/...` and `git@host:path` remotes are still accepted.
 
 Repositories saved earlier with a token in `cloneUrl` keep cloning until they are saved again. Saving one from the studio stores the URL without the token, so first put the Git token in 个人配置, then save the repository. Until then the token also lands in each workspace's `.git/config`, where the agent can read it, so re-save such repositories soon after upgrading.
+
+The installer and `./start.sh pull` do not run `migrations/033_yunxiao_credentials.sql`; startup AutoMigrate adds `user_configs.yunxiao_token` and `yunxiao_user_id`, and operators who keep production DDL explicit can run the script by hand.
 
 ## 0.3.8 — header sign-in hardening and a GHCR mirror option
 

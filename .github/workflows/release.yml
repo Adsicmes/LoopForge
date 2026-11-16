@@ -94,7 +94,7 @@ jobs:
           flavor: latest=false
           tags: |
             type=semver,pattern={{version}},value=${{ steps.release.outputs.tag }}
-            type=semver,pattern={{major}}.{{minor}},value=${{ steps.release.outputs.tag }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ steps.release.outputs.tag }},enable=${{ steps.release.outputs.prerelease == 'false' }}
             type=raw,value=sha-${{ steps.release.outputs.sha }}
             type=raw,value=latest,enable=${{ steps.release.outputs.prerelease == 'false' }}
 
