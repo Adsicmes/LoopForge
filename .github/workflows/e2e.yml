@@ -25,9 +25,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {os: ubuntu-latest, python-version: "3.8", node-version: "22"}
-          - {os: ubuntu-latest, python-version: "3.12", node-version: "22"}
-          - {os: ubuntu-latest, python-version: "3.12", node-version: "20"}
+          # ubuntu-latest moved to 26.04, where setup-python has no 3.8 build and
+          # Playwright ships no Chromium; pin the images these legs still support.
+          - {os: ubuntu-22.04, python-version: "3.8", node-version: "22"}
+          - {os: ubuntu-24.04, python-version: "3.12", node-version: "22"}
+          - {os: ubuntu-24.04, python-version: "3.12", node-version: "20"}
           - {os: macos-latest, python-version: "3.12", node-version: "22"}
     steps:
       - uses: actions/checkout@v7.0.1
@@ -43,7 +45,8 @@ jobs:
 
   e2e-browser:
     name: e2e-browser (dashboard in Chromium)
-    runs-on: ubuntu-latest
+    # Playwright 1.55 has no Chromium build for ubuntu 26.04 yet.
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7.0.1

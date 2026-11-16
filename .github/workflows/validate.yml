@@ -14,11 +14,18 @@ defaults:
 
 jobs:
   validate:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.8", "3.12"]
+        include:
+          # Python 3.8 has no build for the ubuntu-26.04 runner image that
+          # ubuntu-latest now points at, so the 3.8 leg stays on 22.04. Without
+          # this the whole job dies in setup-python before any check runs.
+          - python-version: "3.8"
+            runner: ubuntu-22.04
+          - python-version: "3.12"
+            runner: ubuntu-latest
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: actions/setup-python@v5.6.0
