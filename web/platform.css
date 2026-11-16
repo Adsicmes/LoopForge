@@ -2429,6 +2429,19 @@ html[data-theme="dark"] .credential-logo.monochrome img{filter:invert(1)}
 .github-connect-status .button{margin:8px 6px 0 0}
 .github-device-code{display:block;font:600 26px/1.8 monospace;letter-spacing:3px;color:var(--cr-text)}
 .github-private-note{font-size:12px;color:var(--cr-muted)}
+.codeup-picker{display:grid;gap:10px;padding:12px;border:1px solid var(--cr-line);border-radius:10px;background:var(--cr-canvas)}
+.codeup-picker-hint{font-size:12px;line-height:1.7;color:var(--cr-muted);margin:0}
+.codeup-picker-actions{display:flex;gap:8px}
+.codeup-picker-error{font-size:12px;line-height:1.6;color:var(--cr-err);margin:0;overflow-wrap:anywhere}
+.codeup-picker [data-codeup-select-field][hidden],.codeup-picker-error[hidden]{display:none}
+.repo-webhook{display:grid;gap:8px;margin-top:14px;padding-top:14px;border-top:1px solid var(--cr-line)}
+.repo-webhook[hidden]{display:none}
+.repo-webhook h5{margin:0;font-size:13px;font-weight:600;color:var(--cr-text)}
+.repo-webhook-hint{margin:0;font-size:12px;line-height:1.7;color:var(--cr-muted)}
+.repo-webhook-hint.is-warn{color:var(--cr-warn)}
+.repo-webhook-secret{display:flex;align-items:center;gap:8px}
+.repo-webhook-secret code{flex:1;min-width:0;overflow-wrap:anywhere;padding:6px 8px;border:1px solid var(--cr-line);border-radius:6px;background:var(--cr-canvas);font:12px/1.5 monospace}
+.repo-webhook-actions{display:flex;gap:8px}
 .credential-oauth small{color:var(--cr-muted);font-size:11.5px}
 .credential-note{display:flex;gap:8px;padding:9px 11px;border:1px solid var(--cr-line);border-radius:8px;background:var(--cr-canvas);color:var(--cr-muted);font-size:12px;line-height:1.6}
 .credential-note[hidden]{display:none}

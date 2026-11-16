@@ -1,6 +1,6 @@
 // Repository add/edit drawer for the project detail page. Saves write straight
 // to /api/repositories; #repositoryModal stays for its other callers.
-const repoDrawerState={projectId:'',repoId:'',nameTouched:false,saving:false,returnFocus:null};
+const repoDrawerState={projectId:'',repoId:'',nameTouched:false,saving:false,returnFocus:null,webhookSecret:''};
 function repoDrawerOpen(){return !!$('#repoDrawer')?.classList.contains('open')}
 function setRepoDrawerSwitch(on){const sw=$('#repoDrawerDefault');if(!sw)return;sw.classList.toggle('on',!!on);sw.setAttribute('aria-checked',String(!!on))}
 function repoDrawerError(show){
@@ -30,7 +30,8 @@ function openRepoDrawer(repoId=''){
   const hasDefault=!projectNeedsDefaultRepository(project);
   const repoAddress=repo?.provider==='ssh'?repo.cloneUrl:repo?.webUrl||repo?.cloneUrl||repo?.gongfengProjectId||'';
   const parsedName=parseGongfengRepoURL(repoAddress)?.name||'';
-  Object.assign(repoDrawerState,{projectId,repoId:repo?.id||'',nameTouched:!!repo&&!!repo.name&&repo.name!==parsedName,saving:false,returnFocus:document.activeElement});
+  // A generated webhook secret is shown once and never re-read from the API.
+  Object.assign(repoDrawerState,{projectId,repoId:repo?.id||'',nameTouched:!!repo&&!!repo.name&&repo.name!==parsedName,saving:false,webhookSecret:'',returnFocus:document.activeElement});
   f.elements.id.value=repo?.id||'';
   f.elements.repoUrl.value=repoAddress;
   f.elements.webUrl.value=repo?.provider==='ssh'?repo.webUrl||'':'';
@@ -53,6 +54,12 @@ function openRepoDrawer(repoId=''){
     f.elements.defaultBranch.value=repository.default_branch||'main';
     syncRepoDrawerDetect();
   });
+  if(typeof mountCodeupRepoPicker==='function')mountCodeupRepoPicker(drawer.querySelector('[data-codeup-repositories]'),repository=>{
+    f.elements.repoUrl.value=repository.webUrl||repository.cloneUrl||('codeup:'+repository.project);
+    f.elements.defaultBranch.value=repository.defaultBranch||'master';
+    syncRepoDrawerDetect();
+  },{getAddress:()=>f.elements.repoUrl.value});
+  renderRepoWebhookPanel();
   setTimeout(()=>f.elements.repoUrl.focus(),120);
 }
 function closeRepoDrawer(opt){
@@ -106,6 +113,60 @@ async function saveRepoDrawer(e){
     toast(defaultError||(editing?'仓库已保存':`仓库已添加${makeDefault&&!wasDefault?'，并设为默认':''}`),defaultError?'err':'ok');
   }catch(err){toast(err.message,'err')}
   finally{repoDrawerState.saving=false;const btn=$('#repoDrawerSave');if(btn)btn.disabled=false}
+}
+// 云效 Webhook：Codeup 只会把配置里的 Secret Token 原样放进 X-Codeup-Token，
+// 平台侧凭这个共享密钥认出「这是本仓库的事件」，因此密钥只在生成时显示一次。
+function repoWebhookEndpoint(repoId){
+  const origin=location.origin&&location.origin!=='null'?location.origin:'';
+  return origin+'/api/webhooks/codeup/'+repoId;
+}
+function renderRepoWebhookPanel(){
+  const box=$('#repoDrawerWebhook');
+  if(!box)return;
+  const repo=(state.data.repositories||[]).find(r=>r.id===repoDrawerState.repoId);
+  if(!repo||repo.provider!=='codeup'){box.hidden=true;box.innerHTML='';return}
+  const endpoint=repoWebhookEndpoint(repo.id),secret=repoDrawerState.webhookSecret||'';
+  box.hidden=false;
+  box.innerHTML='<h5>云效 Webhook（可选）</h5>'
+    +'<p class="repo-webhook-hint">在 Codeup 仓库「设置 → Webhooks」里填这个地址和密钥，合并请求状态变化会立刻同步，不用等轮询。事件勾选「合并请求事件」即可。</p>'
+    +'<label class="pa-field"><span>回调地址</span><input class="pa-input mono" readonly value="'+escapeHTML(endpoint)+'"></label>'
+    +(secret
+      ?'<p class="repo-webhook-hint is-warn">密钥只显示这一次，复制到 Codeup 的 Secret Token 后保存。</p>'
+        +'<div class="repo-webhook-secret"><code>'+escapeHTML(secret)+'</code><button type="button" class="button ghost small" data-webhook-copy>复制</button></div>'
+      :(repo.webhookConfigured
+        ?'<p class="repo-webhook-hint">已配置密钥。密钥不会再次显示，忘了就重新生成。</p>'
+        :'<p class="repo-webhook-hint">还没有配置密钥。</p>'))
+    +'<div class="repo-webhook-actions">'
+    +'<button type="button" class="button ghost small" data-webhook-rotate>'+(repo.webhookConfigured?'重新生成密钥':'生成密钥')+'</button>'
+    +(repo.webhookConfigured?'<button type="button" class="button ghost small" data-webhook-clear>清除</button>':'')
+    +'</div>';
+  const copy=box.querySelector('[data-webhook-copy]');
+  if(copy)copy.onclick=async()=>{
+    try{await navigator.clipboard.writeText(secret);toast('密钥已复制','ok')}
+    catch(err){toast('复制失败，请手动选中复制','err')}
+  };
+  const rotate=box.querySelector('[data-webhook-rotate]');
+  rotate.onclick=async()=>{
+    rotate.disabled=true;
+    try{
+      const result=await api('/api/repositories/'+encodeURIComponent(repo.id)+'/webhook-secret',{method:'POST',body:'{}'});
+      repo.webhookConfigured=true;
+      repoDrawerState.webhookSecret=result?.secret||'';
+      renderRepoWebhookPanel();
+      toast('已生成 Webhook 密钥','ok');
+    }catch(err){toast(err.message,'err');rotate.disabled=false}
+  };
+  const clear=box.querySelector('[data-webhook-clear]');
+  if(clear)clear.onclick=async()=>{
+    clear.disabled=true;
+    try{
+      await api('/api/repositories/'+encodeURIComponent(repo.id)+'/webhook-secret',{method:'DELETE'});
+      repo.webhookConfigured=false;
+      repoDrawerState.webhookSecret='';
+      renderRepoWebhookPanel();
+      toast('已清除 Webhook 密钥','ok');
+    }catch(err){toast(err.message,'err');clear.disabled=false}
+  };
 }
 function bindRepoDrawer(){
   const f=$('#repoDrawerForm');if(!f||f.dataset.bound)return;f.dataset.bound='true';

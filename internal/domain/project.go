@@ -67,23 +67,30 @@ type ProjectMember struct {
 const RepositoryProviderSSH = "ssh"
 
 type Repository struct {
-	ID                 string    `json:"id"`
-	ProjectID          string    `json:"projectId"`
-	Provider           string    `json:"provider"`
-	Name               string    `json:"name"`
-	GongfengProjectID  string    `json:"gongfengProjectId"`
-	WebURL             string    `json:"webUrl,omitempty"`
-	CloneURL           string    `json:"cloneUrl,omitempty"`
-	DefaultBranch      string    `json:"defaultBranch"`
-	LocalPath          string    `json:"localPath,omitempty"`
-	GitToken           string    `json:"-"` // deprecated; credentials belong to users
-	GitTokenConfigured bool      `json:"-"`
-	PipelineProjectID  int       `json:"pipelineProjectId,omitempty"`
-	PipelineDefID      int       `json:"pipelineDefId,omitempty"`
-	PipelineURLPattern string    `json:"pipelineUrlPattern,omitempty"`
-	IntegrateBranch    string    `json:"integrateBranch,omitempty"`
-	CreatedAt          time.Time `json:"createdAt"`
-	UpdatedAt          time.Time `json:"updatedAt"`
+	ID                 string `json:"id"`
+	ProjectID          string `json:"projectId"`
+	Provider           string `json:"provider"`
+	Name               string `json:"name"`
+	GongfengProjectID  string `json:"gongfengProjectId"`
+	WebURL             string `json:"webUrl,omitempty"`
+	CloneURL           string `json:"cloneUrl,omitempty"`
+	DefaultBranch      string `json:"defaultBranch"`
+	LocalPath          string `json:"localPath,omitempty"`
+	GitToken           string `json:"-"` // deprecated; credentials belong to users
+	GitTokenConfigured bool   `json:"-"`
+	PipelineProjectID  int    `json:"pipelineProjectId,omitempty"`
+	PipelineDefID      int    `json:"pipelineDefId,omitempty"`
+	PipelineURLPattern string `json:"pipelineUrlPattern,omitempty"`
+	IntegrateBranch    string `json:"integrateBranch,omitempty"`
+	// WebhookSecret is the shared secret Codeup echoes back in X-Codeup-Token.
+	// It is persisted with the repository row (there is no separate credential
+	// table for repositories) but every API response goes through
+	// PublicRepository, which clears it — the secret is shown once, when it is
+	// generated, and rotating it is the only way to see a new one.
+	WebhookSecret     string    `json:"webhookSecret,omitempty"`
+	WebhookConfigured bool      `json:"webhookConfigured,omitempty"`
+	CreatedAt         time.Time `json:"createdAt"`
+	UpdatedAt         time.Time `json:"updatedAt"`
 }
 
 // PublicRepository strips the git token for API responses. Clone/push still
@@ -91,6 +98,8 @@ type Repository struct {
 func PublicRepository(r Repository) Repository {
 	r.GitTokenConfigured = false
 	r.GitToken = ""
+	r.WebhookConfigured = r.WebhookSecret != ""
+	r.WebhookSecret = ""
 	// Rows saved before credentials were rejected may still embed them.
 	r.CloneURL = StripURLCredentials(r.CloneURL)
 	r.WebURL = StripURLCredentials(r.WebURL)

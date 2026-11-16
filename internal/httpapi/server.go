@@ -361,6 +361,11 @@ func newWithNotifications(s *repo.Store, e *engine.Engine, syncSvc *tracker.Serv
 	g.PUT("/api/repositories", api.catalog.repositories)
 	g.DELETE("/api/repositories", api.catalog.repositories)
 	g.GET("/api/repositories/:id", api.catalog.repository)
+	// Codeup webhooks: Codeup cannot present a session cookie, so this route
+	// authenticates with the per-repository shared secret instead.
+	g.POST("/api/webhooks/codeup/:id", api.catalog.codeupWebhook)
+	g.POST("/api/repositories/:id/webhook-secret", api.catalog.codeupWebhookSecret)
+	g.DELETE("/api/repositories/:id/webhook-secret", api.catalog.codeupWebhookSecret)
 	g.GET("/api/issues", api.issues.issues)
 	g.PUT("/api/issues", api.issues.issues)
 	g.POST("/api/issues", api.issues.issues)

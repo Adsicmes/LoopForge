@@ -77,6 +77,10 @@ func protectedAccessPath(path string) bool {
 	if isRunnerAgentPath(path) {
 		return false
 	}
+	// Codeup webhooks authenticate with the repository's shared secret.
+	if strings.HasPrefix(path, "/api/webhooks/codeup/") {
+		return false
+	}
 	switch path {
 	// gongfeng/start checks the session itself so a signed-out browser
 	// gets a page that says so, not a bare JSON 401.

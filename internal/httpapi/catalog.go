@@ -100,6 +100,12 @@ func (h *catalogHandlers) repositories(c *gin.Context) {
 	if !h.canManageProjectRepositories(c, v.ProjectID) {
 		return
 	}
+	// The webhook secret is never serialized, so a normal edit round-trips
+	// without it. Keeping the stored value here is what stops an unrelated
+	// repository edit from silently disabling the webhook.
+	if existing, ok := h.repo.Repository(v.ID); ok {
+		v.WebhookSecret = existing.WebhookSecret
+	}
 	// localPath copies a directory from the executing host into the task
 	// workspace, so only platform administrators may set it.
 	if authRequired() && !h.isPlatformAdmin(c.Request) {
