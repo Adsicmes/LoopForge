@@ -111,7 +111,7 @@ function document_has(app, selector) {
 test('the repository drawer manages the Codeup webhook secret', async (t) => {
   const app = await loadApp();
   t.after(app.close);
-  app.router.post(/^\/api\/repositories\/[^/]+\/webhook-secret$/, { secret: 'a1b2c3d4e5f6', header: 'X-Codeup-Token' });
+  app.router.post(/^\/api\/repositories\/[^/]+\/webhook-secret$/, { secret: 'fixture-secret-not-real', header: 'X-Codeup-Token' });
   app.router.delete(/^\/api\/repositories\/[^/]+\/webhook-secret$/, { status: 'cleared' });
   app.evaluate(`
     state.currentUser={id:1,loginName:'owner',gitTokenConfigured:true};
@@ -133,7 +133,7 @@ test('the repository drawer manages the Codeup webhook secret', async (t) => {
   const call = app.router.calls.find(c => c.method === 'POST' && c.path === '/api/repositories/repo-codeup-1/webhook-secret');
   assert.ok(call, 'the rotate call should be sent');
   const secretBox = app.document.querySelector('#repoDrawerWebhook .repo-webhook-secret code');
-  assert.equal(secretBox.textContent, 'a1b2c3d4e5f6');
+  assert.equal(secretBox.textContent, 'fixture-secret-not-real');
   assert.match(app.document.querySelector('#repoDrawerWebhook').textContent, /只显示这一次/);
 });
 
