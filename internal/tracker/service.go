@@ -19,6 +19,7 @@ import (
 // issue trackers (Gongfeng issues + TAPD stories).
 type Service struct {
 	githubAPIBase         string // Tests inject an HTTP server; production uses api.github.com.
+	codeupAPIBaseURL      string // Tests inject an HTTP server; production uses AGENTFLOW_CODEUP_API_BASE.
 	cfg                   *syncConfigHolder
 	gongfeng              *MCPClient
 	tapd                  *MCPClient
