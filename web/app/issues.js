@@ -545,7 +545,30 @@ function issueFromForm(){
 // repoDisplayPath shows host/path for a parsed repository, e.g. github.com/owner/name.
 function repoDisplayPath(info,fallback=''){return info?.provider==='ssh'?(info.project||info.cloneUrl||fallback):info?.webUrl?String(info.webUrl).replace(/^https?:\/\//,''):String(fallback||'')}
 function repoProviderLabel(info){return info?.provider==='ssh'?'Git SSH':info?.provider==='github'?'GitHub':'工蜂'}
+// 云效 Codeup：仓库地址形如 https://codeup.aliyun.com/{orgId}/{group?}/{repo}，
+// 组织 ID 是 24 位十六进制。HTTPS / SSH / clone / 网页子页面都收敛到同一身份。
+// 放在通用 SSH 识别之前：Codeup 分支上的 MR 只能用个人访问令牌走 OpenAPI，
+// 落到「纯 SSH 仓库」就再也建不了合并请求了。
+function parseCodeupRepoURL(raw){
+  const trimmed=String(raw||'').trim();
+  if(!trimmed)return null;
+  const text=trimmed.replace(/^git clone /,'').replace(/^codeup:/,'https://codeup.aliyun.com/').replace(/^(?:git@codeup\.aliyun\.com:|ssh:\/\/git@codeup\.aliyun\.com(?::22)?\/)/,'https://codeup.aliyun.com/');
+  const withScheme=/^codeup\.aliyun\.com\//.test(text)?'https://'+text:text;
+  let u;
+  try{u=new URL(withScheme)}catch(_){return null}
+  if(u.hostname!=='codeup.aliyun.com'||u.username||u.password||!['http:','https:'].includes(u.protocol))return null;
+  const parts=u.pathname.split('/').filter(Boolean).map(seg=>{try{return decodeURIComponent(seg)}catch(_){return seg}});
+  const org=parts[0]||'';
+  let path=parts.slice(1).join('/').replace(/\.git$/,'');
+  for(const marker of ['/tree/','/blob/','/commit/','/change/','/merge_requests/','/issues/']){
+    const i=path.indexOf(marker);if(i>=0)path=path.slice(0,i);
+  }
+  if(!/^[0-9a-f]{24}$/.test(org)||!path)return null;
+  const name=path.split('/').filter(Boolean).pop();
+  return {project:'codeup:'+org+'/'+path,name,webUrl:'https://codeup.aliyun.com/'+org+'/'+path,cloneUrl:'https://codeup.aliyun.com/'+org+'/'+path+'.git',provider:'codeup'};
+}
 function parseGongfengRepoURL(raw){
+  const codeupInfo=parseCodeupRepoURL(raw);if(codeupInfo)return codeupInfo;
   const sshInfo=globalThis.LoopForgeGitSSH?.(raw);if(sshInfo)return sshInfo;
   let publicURL=String(raw||'').trim().replace(/^git clone /,'').replace(/^github:/,'https://github.com/').replace(/^(?:git@github\.com:|ssh:\/\/git@github\.com(?::22)?\/)/,'https://github.com/');
   if(publicURL.startsWith('github.com/'))publicURL='https://'+publicURL;
@@ -691,6 +714,87 @@ async function importTAPDStory(e){
   }catch(err){toast(err.message)}
   finally{if(button){button.disabled=false;button.textContent='导入'}}
 }
+// ---------- 云效 Codeup 工作项导入 ----------
+// 与 TAPD 导入同一套交互（仓库多选 + 可选继续开发分支），但只列 Codeup 仓库：
+// 组织与 Projex space 都是从仓库推导出来的，选错仓库就查不到工作项。
+function codeupImportRepositories(){
+  return (state.data.repositories||[]).filter(r=>r.projectId===state.projectFilter&&r.provider==='codeup');
+}
+function renderImportCodeupRepositoryPicker(){
+  const host=$('#importCodeupRepository');
+  if(!host)return;
+  const repos=codeupImportRepositories();
+  const selected=selectedImportCodeupRepositoryIds();
+  const chosen=new Set(selected);
+  const leftover=repos.filter(r=>!chosen.has(r.id));
+  const tags=selected.map(id=>{
+    const name=repos.find(r=>r.id===id)?.name||id;
+    return `<button type="button" class="repo-picker-tag" data-remove-codeup-repo="${escapeHTML(id)}">${escapeHTML(name)}<span aria-hidden="true">×</span></button>`;
+  }).join('');
+  const options=leftover.map(r=>`<option value="${escapeHTML(r.id)}">${escapeHTML(r.name)}</option>`).join('');
+  const placeholder=!repos.length?'当前项目还没有云效仓库':(!leftover.length?'已全部选择':'选择仓库');
+  host.innerHTML=`<div class="repo-picker-field">${tags}<select class="repo-picker-select"${leftover.length?'':' disabled'}><option value="">${placeholder}</option>${options}</select></div>`;
+  host.querySelectorAll('[data-remove-codeup-repo]').forEach(b=>b.onclick=()=>setImportCodeupRepositoryIds(selected.filter(id=>id!==b.dataset.removeCodeupRepo)));
+  const sel=host.querySelector('select');
+  if(sel)sel.onchange=()=>{if(!sel.value)return;setImportCodeupRepositoryIds([...selected,sel.value])};
+  renderIssueRepositoryBranchInputs($('#importCodeupBaseBranch'),$('#importCodeupBaseBranchHint'),$('#importCodeupRepositoryBranches'),selected);
+}
+function selectedImportCodeupRepositoryIds(){
+  try{return JSON.parse($('#importCodeupRepository')?.dataset.ids||'[]')}catch{return []}
+}
+function setImportCodeupRepositoryIds(ids){
+  const host=$('#importCodeupRepository');
+  if(!host)return;
+  const known=new Set(codeupImportRepositories().map(r=>r.id));
+  host.dataset.ids=JSON.stringify([...new Set((ids||[]).filter(id=>known.has(id)))]);
+  renderImportCodeupRepositoryPicker();
+}
+function openImportCodeupModal(){
+  if(!state.projectFilter)return toast('请先在顶部选择一个项目');
+  const identifier=$('#importCodeupIdentifier');if(identifier)identifier.value='';
+  const space=$('#importCodeupSpace');if(space)space.value='';
+  const baseBranch=$('#importCodeupBaseBranch');if(baseBranch)baseBranch.value='';
+  const host=$('#importCodeupRepository');
+  if(host){
+    // 默认带上当前项目的全部 Codeup 仓库，和 TAPD 导入一样不逼人每次重选。
+    host.dataset.ids=JSON.stringify(codeupImportRepositories().map(r=>r.id));
+    renderImportCodeupRepositoryPicker();
+  }
+  if(!codeupImportRepositories().length)toast('当前项目还没有绑定云效 Codeup 仓库，先在项目设置里添加','warn');
+  $('#importCodeupModal').classList.add('open');
+  setTimeout(()=>identifier?.focus(),0);
+}
+async function importCodeupWorkItem(e){
+  e.preventDefault();
+  const identifier=$('#importCodeupIdentifier')?.value.trim();
+  if(!identifier)return toast('请填写云效工作项编号，例如 DEMO-12');
+  if(!state.projectFilter)return toast('请先选择项目');
+  const repositoryIds=selectedImportCodeupRepositoryIds();
+  if(!repositoryIds.length)return toast('请至少选择一个云效仓库');
+  const button=$('#confirmImportCodeup');
+  try{
+    if(button){button.disabled=true;button.textContent='正在导入…'}
+    const spaceId=$('#importCodeupSpace')?.value.trim()||'';
+    const baseBranch=$('#importCodeupBaseBranch')?.value.trim()||'';
+    const repositoryBranches=selectedIssueRepositoryBranches($('#importCodeupBaseBranch'),$('#importCodeupRepositoryBranches'));
+    const issue=await api('/api/issues/import-codeup',{method:'POST',body:JSON.stringify({projectId:state.projectFilter,identifier,spaceId:spaceId||undefined,repositoryIds,repositoryId:repositoryIds[0],baseBranch,repositoryBranches})});
+    const idx=(state.data.issues||[]).findIndex(i=>i.id===issue.id);
+    if(idx>=0)state.data.issues[idx]=issue;else (state.data.issues||(state.data.issues=[])).unshift(issue);
+    $('#importCodeupModal').classList.remove('open');
+    renderIssues();
+    toast(`已导入云效工作项：${issue.title||issue.id}`,'ok');
+    if(issue.id)openIssueDetail(issue.id);
+  }catch(err){toast(err.message)}
+  finally{if(button){button.disabled=false;button.textContent='导入'}}
+}
+function bindImportCodeupModal(){
+  const trigger=$('#importCodeupIssue');
+  if(trigger&&!trigger.dataset.bound){trigger.dataset.bound='true';trigger.onclick=openImportCodeupModal}
+  const form=$('#importCodeupForm');
+  if(form&&!form.dataset.bound){form.dataset.bound='true';form.onsubmit=importCodeupWorkItem}
+  $$('.import-codeup-close').forEach(b=>{if(!b.dataset.bound){b.dataset.bound='true';b.onclick=()=>$('#importCodeupModal')?.classList.remove('open')}});
+}
+
 function canonicalIssue(id){
   id=String(id||'').trim();
   if(!id)return {};

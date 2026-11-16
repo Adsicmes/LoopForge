@@ -1224,6 +1224,7 @@ function bind(){
   $('#importTAPDIssue')&&($('#importTAPDIssue').onclick=openImportTAPDModal);
   $$('.import-tapd-close').forEach(b=>b.onclick=()=>$('#importTAPDModal').classList.remove('open'));
   $('#importTAPDForm')&&($('#importTAPDForm').onsubmit=importTAPDStory);
+  bindImportCodeupModal();
   $('#editScheduleTrigger')&&($('#editScheduleTrigger').onclick=()=>openScheduleJobModal('dispatch'));
   $('#newAISchedule').onclick=()=>{selectAIScheduleTab('project');openScheduleJobModal('assistant')};
   $('#refreshAISchedules').onclick=refreshAISchedules;

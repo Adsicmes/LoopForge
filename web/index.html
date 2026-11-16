@@ -276,6 +276,7 @@
               <button id="openSyncModal" class="hui-menu-item" type="button" role="menuitem" tabindex="-1"><svg class="agent-icon harness-icon" data-icon="swap" width="16" height="16" aria-hidden="true" focusable="false"></svg><span class="hui-menu-label">外部同步</span><span class="hui-menu-meta"><span id="syncBadge" class="sync-badge live">未配置</span></span></button>
               <span class="hui-menu-sep" role="separator"></span>
               <button id="importGitHubIssues" class="hui-menu-item" type="button" role="menuitem" tabindex="-1"><svg class="agent-icon harness-icon" data-icon="download" width="16" height="16" aria-hidden="true" focusable="false"></svg><span class="hui-menu-label">同步 GitHub</span></button>
+              <button id="importCodeupIssue" class="hui-menu-item" type="button" role="menuitem" tabindex="-1"><svg class="agent-icon harness-icon" data-icon="download" width="16" height="16" aria-hidden="true" focusable="false"></svg><span class="hui-menu-label">导入云效工作项</span></button>
               <button id="importTAPDIssue" class="hui-menu-item" type="button" role="menuitem" tabindex="-1" data-legacy-tracker hidden><svg class="agent-icon harness-icon" data-icon="download" width="16" height="16" aria-hidden="true" focusable="false"></svg><span class="hui-menu-label">导入 TAPD</span></button>
             </div>
           </div>
@@ -990,6 +991,7 @@
     </div>
   </div>
 
+  <div id="importCodeupModal" class="modal"><form id="importCodeupForm" class="modal-card"><button type="button" class="modal-close import-codeup-close">×</button><p class="eyebrow">外部需求</p><h2>导入云效工作项</h2><p class="modal-hint">填 Projex 工作项编号（如 DEMO-12），用你在个人设置里的云效个人访问令牌读取标题和描述，写入当前项目。导入是一次性拉取，之后不再回写云效。</p><label for="importCodeupIdentifier">云效工作项编号</label><input id="importCodeupIdentifier" class="input" required placeholder="DEMO-12" autocomplete="off"><label for="importCodeupSpace">Projex 项目（spaceId，可选）</label><input id="importCodeupSpace" class="input" placeholder="留空按令牌可访问的范围搜索" autocomplete="off"><label>代码仓库（决定云效组织，可多选）</label><div id="importCodeupRepository" class="repo-picker"></div><p class="modal-hint">从下拉框添加仓库，点击标签可移除。必须至少绑定一个已经导入的云效 Codeup 仓库。</p><label for="importCodeupBaseBranch">继续开发分支（可选）</label><input id="importCodeupBaseBranch" class="input" placeholder="留空从配置主分支新建工作分支" aria-describedby="importCodeupBaseBranchHint" autocomplete="off"><div id="importCodeupRepositoryBranches" class="repository-branches" hidden></div><p id="importCodeupBaseBranchHint" class="modal-hint">留空从配置主分支新建工作分支；填写时直接继续该已有分支，不新建。</p><div class="modal-actions"><button type="button" class="button ghost import-codeup-close">取消</button><button id="confirmImportCodeup" type="submit" class="button primary">导入</button></div></form></div>
   <div id="importTAPDModal" class="modal"><form id="importTAPDForm" class="modal-card"><button type="button" class="modal-close import-tapd-close">×</button><p class="eyebrow">外部需求</p><h2>导入 TAPD 工作项</h2><p class="modal-hint">支持 TAPD 需求、缺陷或任务链接，也可以粘贴「标题 + 链接」。导入时将读取 TAPD 最新标题和描述并写入当前项目。</p><label for="importTAPDURL">TAPD 链接或分享文本</label><textarea id="importTAPDURL" class="input" required rows="3" placeholder="【工作项标题】&#10;https://tapd.example.com/tapd_fe/…/story/detail/…"></textarea><label>SOP 流程</label><select id="importTAPDWorkflow" class="select"></select><label>代码仓库（可多选）</label><div id="importTAPDRepository" class="repo-picker"></div><p class="modal-hint">从下拉框添加仓库，点击标签可移除。导入前必须至少选择一个仓库。</p><label for="importTAPDBaseBranch">继续开发分支（可选）</label><input id="importTAPDBaseBranch" class="input" placeholder="留空从配置主分支新建工作分支" aria-describedby="importTAPDBaseBranchHint" autocomplete="off"><div id="importTAPDRepositoryBranches" class="repository-branches" hidden></div><p id="importTAPDBaseBranchHint" class="modal-hint">留空从配置主分支新建工作分支；填写时直接继续该已有分支，不新建。</p><div class="modal-actions"><button type="button" class="button ghost import-tapd-close">取消</button><button id="confirmImportTAPD" type="submit" class="button primary">导入</button></div></form></div>
 
   <div id="runModal" class="modal"><div class="modal-card"><button class="modal-close">×</button><p class="eyebrow">手动运行</p><h2>发起流程运行</h2><p>选择 SOP 并提供任务输入，内容会注入使用 <code>{{input}}</code> 的 Agent 节点。</p><label class="modal-label" for="runWorkflowChoice">SOP 流程</label><select id="runWorkflowChoice" class="select"></select><label class="modal-label" for="runInput">任务输入</label><textarea id="runInput" placeholder="例如：实现用户登录接口，并补充单元测试"></textarea><div class="modal-actions"><button class="button ghost modal-close">取消</button><button id="confirmRun" class="button primary">开始运行</button></div></div></div>
@@ -1008,10 +1010,12 @@
         <div class="pa-fs">
           <h5>仓库地址</h5>
           <div data-github-repositories></div>
+          <div data-codeup-repositories></div>
+          <div id="repoDrawerWebhook" class="repo-webhook" hidden></div>
           <label class="pa-field"><span class="pa-field-l">GitHub 链接或 Git SSH 地址</span>
             <input class="pa-input mono" name="repoUrl" spellcheck="false" placeholder="https://github.com/owner/repo">
-            <span class="pa-fmt"><code>https://github.com/owner/repo</code><code>git@gitlab.com:group/repo.git</code></span>
-            <span class="pa-field-e" id="repoDrawerUrlError" hidden>请输入有效的 GitHub 链接或 Git SSH 克隆地址。CNB 只支持 HTTPS + 访问令牌。</span>
+            <span class="pa-fmt"><code>https://github.com/owner/repo</code><code>https://codeup.aliyun.com/{orgId}/group/repo.git</code><code>git@gitlab.com:group/repo.git</code></span>
+            <span class="pa-field-e" id="repoDrawerUrlError" hidden>请输入有效的 GitHub / 云效 Codeup 链接或 Git SSH 克隆地址。CNB 只支持 HTTPS + 访问令牌。</span>
           </label>
           <div class="pa-detect" id="repoDrawerDetect" hidden><span class="pa-detect-ok"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 5 5 9-10"/></svg></span><div class="pa-detect-m"><b id="repoDrawerDetectName"></b><code id="repoDrawerDetectPath"></code></div><button type="button" class="button ghost small" id="repoDrawerRename">改名</button></div>
           <label class="pa-field" id="repoDrawerNameField" hidden><span class="pa-field-l">仓库名称</span><input class="pa-input mono" name="name" placeholder="留空则自动取项目路径末段"></label>
@@ -1298,6 +1302,7 @@
   <script src="/app/issue-model.js"></script>
   <script src="/app/projects.js"></script>
   <script src="/app/github-connect.js"></script>
+  <script src="/app/codeup-connect.js"></script>
   <script src="/app/project-wizard.js"></script>
   <script src="/app/repo_drawer.js"></script>
   <script src="/app/composer.js"></script>

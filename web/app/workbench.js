@@ -456,6 +456,23 @@ function credentialClearPayload(kind){
   return payload;
 }
 function gitTokenVerifyFor(user){return state.gitTokenVerify&&Number(state.gitTokenVerify.userId)===Number(user?.id)?state.gitTokenVerify:null}
+// The credential slot serves every hosting provider, and the checker needs to
+// know which one to ask. Codeup is picked when the user's repositories are
+// Codeup only; mixed setups stay on GitHub, which also serves as the default.
+function credentialGitProvider(){
+  const repositories=state.data?.repositories||[];
+  if(!repositories.length)return 'github';
+  const codeup=repositories.some(repo=>repo.provider==='codeup');
+  const github=repositories.some(repo=>(repo.provider||'gongfeng')==='github');
+  return codeup&&!github?'codeup':'github';
+}
+function gitTokenProviderLabel(result){
+  const provider=String(result?.provider||'').toLowerCase();
+  if(provider==='codeup')return '云效';
+  if(provider==='github')return 'GitHub';
+  if(provider==='gongfeng')return '工蜂';
+  return '';
+}
 function gitTokenFailure(result){
   if(!result)return '';
   if(result.error)return result.error;
@@ -712,7 +729,7 @@ async function deleteCredential(key){
 // Git 令牌必须先校验通过才保存，校验失败时什么都不写入。
 async function verifyAndSaveGitToken(token){
   const user=state.currentUser;
-  const result=await api(`/api/users/${user.id}/git-token/verify`,{method:'POST',body:JSON.stringify({token}),silent:true});
+  const result=await api(`/api/users/${user.id}/git-token/verify`,{method:'POST',body:JSON.stringify({token,provider:credentialGitProvider()}),silent:true});
   if(!result?.valid)return {saved:false,result};
   const saved=await saveCredential('gitToken',{secret:token},{verified:true});
   state.gitTokenVerify={userId:user.id,result,checkedAt:Date.now()};
@@ -725,14 +742,14 @@ async function refreshGitTokenStatus(options={}){
   state.gitTokenVerify={userId:user.id,busy:true,result:previous?.result,checkedAt:previous?.checkedAt};
   repaintCredentialRow('gitToken');
   let result;
-  try{result=await api(`/api/users/${user.id}/git-token/verify`,{silent:true})}
+  try{result=await api(`/api/users/${user.id}/git-token/verify?provider=${encodeURIComponent(credentialGitProvider())}`,{silent:true})}
   catch(err){result={valid:false,error:err.message}}
   if(Number(state.currentUser?.id)!==Number(user.id))return result;
   state.gitTokenVerify={userId:user.id,result,checkedAt:Date.now()};
   repaintCredentialRow('gitToken');
   const announce=options.announce||state.gitTokenAnnounceVerify;
   state.gitTokenAnnounceVerify=false;
-  if(announce){const failure=gitTokenFailure(result);toast(failure||'Git 令牌校验通过',failure?'err':'ok')}
+  if(announce){const failure=gitTokenFailure(result),label=gitTokenProviderLabel(result);toast(failure||`${label?label+' ':''}令牌校验通过`,failure?'err':'ok')}
   return result;
 }
 function credentialSaved(key,message){
