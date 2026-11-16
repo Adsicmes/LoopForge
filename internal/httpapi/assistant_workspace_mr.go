@@ -137,6 +137,12 @@ func (h *agentToolGateway) workspaceSubmitMR(ctx context.Context, s *AgentToolSe
 			needsGitToken = true
 		}
 	}
+	if len(run.RepositoryContexts()) == 0 {
+		// Without a resolved repository the workspace still needs the Git token:
+		// this is the legacy guard that keeps an unconfigured user out before
+		// any engine work starts.
+		needsGitToken = true
+	}
 	if needsGitToken && apiToken == "" {
 		return "", fmt.Errorf("你还没有配置 Git Token，无法推送和发起 PR。请到「个人配置 → 个人凭证」配置：打开 https://github.com/settings/tokens 新建令牌，为目标仓库授予 Contents 和 Pull requests 的读写权限，复制后粘贴并点校验")
 	}

@@ -564,7 +564,8 @@ function parseYunxiaoRepoURL(raw){
   return {project:'codeup:'+path,provider:'yunxiao',name,webUrl:`https://${host}/${path}`,cloneUrl:ssh?`git@${host}:${path}.git`:`https://${host}/${path}.git`};
 }
 function parseGongfengRepoURL(raw){
-  const yunxiaoInfo=parseYunxiaoRepoURL(raw);if(yunxiaoInfo)return yunxiaoInfo;
+  // Some tests evaluate this function alone; keep the Codeup helper optional.
+  const yunxiaoInfo=typeof parseYunxiaoRepoURL==='function'?parseYunxiaoRepoURL(raw):null;if(yunxiaoInfo)return yunxiaoInfo;
   const sshInfo=globalThis.LoopForgeGitSSH?.(raw);if(sshInfo)return sshInfo;
   let publicURL=String(raw||'').trim().replace(/^git clone /,'').replace(/^github:/,'https://github.com/').replace(/^(?:git@github\.com:|ssh:\/\/git@github\.com(?::22)?\/)/,'https://github.com/');
   if(publicURL.startsWith('github.com/'))publicURL='https://'+publicURL;

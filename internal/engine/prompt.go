@@ -156,7 +156,7 @@ func hostedMRBlurb(st *repo.Store, run domain.Run) string {
 	}
 	if len(continued) > 0 {
 		hint := "用户要求直接在指定的已有分支上继续处理，不新建或改名工作分支。先查找来源分支和目标主分支均匹配的已有 MR 并更新；没有匹配 MR 时才创建。\n" + strings.Join(continued, "\n")
-		if art, ok := latestNamedArtifact(run, "mr", "mr-body"); ok && len(domain.ParseMRs(art.Content)) > 0 {
+		if art, ok := latestNamedArtifact(run, "mr", "mr-body"); ok && artifactMentionsMR(art.Content) {
 			hint += "\n已有 MR 信息（核对来源与目标分支后使用）：\n" + art.Content
 		}
 		return hint
@@ -169,11 +169,19 @@ func hostedMRBlurb(st *repo.Store, run domain.Run) string {
 		}
 		return content
 	}
-	if art, ok := latestNamedArtifact(run, "mr", "mr-body"); ok && len(domain.ParseMRs(art.Content)) > 0 {
+	if art, ok := latestNamedArtifact(run, "mr", "mr-body"); ok && artifactMentionsMR(art.Content) {
 		return "已有本轮 MR，在本轮工作分支上更新，禁止另开分支：\n" + clip(art.Content) + "\n" + searchHint
 	}
 	_ = st
 	return "本轮还没有 MR。对当前工作分支 git push 后创建新 MR。"
+}
+
+// artifactMentionsMR keeps the legacy bare path form (merge_requests/1) that
+// agents write into mr-body while also recognizing full Codeup and GitHub URLs.
+func artifactMentionsMR(content string) bool {
+	return strings.Contains(content, "merge_requests") ||
+		strings.Contains(content, "/change/") ||
+		len(domain.ParseMRs(content)) > 0
 }
 
 func latestNamedArtifact(run domain.Run, nodeID, name string) (domain.Artifact, bool) {
