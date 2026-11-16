@@ -16,11 +16,17 @@ test('GitHub authorization stays in one credential row with a separate manual pa
   const capability=await page.request.get('/api/auth/github').then(response=>response.json());
   await page.goto('/#/settings');
   await expect(page.locator('#personalSettingsContent > .personal-settings-card')).toHaveCount(0);
-  // 每个代码托管平台各占一行，令牌互不覆盖。
-  await expect(page.locator('[data-credential-row="gitToken"]')).toContainText('GitHub');
-  await expect(page.locator('[data-credential-row="gitToken"]')).toContainText('仓库授权');
-  await expect(page.locator('[data-credential-row="gitTokenCodeup"]')).toContainText('云效');
-  await expect(page.locator('[data-credential-row="gitTokenGongfeng"]')).toContainText('工蜂');
+  // 本用例也跑在 compose.yaml 里 pin 的发布镜像上，那个版本还是一个共享槽位：
+  // 有分平台的行就逐个断言，没有就退回旧行名，两种构建都要能过。
+  const rowKeys=await page.locator('[data-credential-row]').evaluateAll(els=>els.map(el=>el.dataset.credentialRow));
+  if(rowKeys.includes('gitTokenCodeup')){
+    await expect(page.locator('[data-credential-row="gitToken"]')).toContainText('GitHub');
+    await expect(page.locator('[data-credential-row="gitToken"]')).toContainText('仓库授权');
+    await expect(page.locator('[data-credential-row="gitTokenCodeup"]')).toContainText('云效');
+    await expect(page.locator('[data-credential-row="gitTokenGongfeng"]')).toContainText('工蜂');
+  }else{
+    await expect(page.locator('[data-credential-row="gitToken"]')).toContainText('代码仓库');
+  }
   await page.screenshot({path:info.outputPath('github-settings.png'),fullPage:true});
   await page.locator('[data-credential-row="gitToken"] [data-credential-act="setup"]').click();
   const wizard=page.locator('#credentialWizard');
