@@ -56,7 +56,7 @@ function codeBuddyEnvironmentLegacy(value){const raw=String(value||'').trim();re
 function codeBuddyKeyURL(value){return (codeBuddyEnvironmentIntent(value)||CODEBUDDY_ENVIRONMENTS[0]).keyUrl}
 function codeBuddyKeyLinkLabel(value){return `前往${(codeBuddyEnvironmentIntent(value)||CODEBUDDY_ENVIRONMENTS[0]).label}获取 API Key`}
 const CREDENTIAL_KINDS=[
-  {key:'gitToken',group:'platform',name:'GitHub',short:'仓库授权',logo:'github',monochrome:true,
+  {key:'gitToken',group:'platform',name:'代码仓库',short:'仓库授权',logo:'github',monochrome:true,
     use:'克隆私有仓库、创建任务分支、推送交付产物',
     description:'用于克隆私有仓库、创建任务分支及推送交付产物。',
     guide:[['打开 GitHub「Settings → Developer settings → Personal access tokens」','https://github.com/settings/tokens','前往 GitHub 申请个人访问令牌'],['新建令牌，为目标仓库授予 <code>Contents</code> 和 <code>Pull requests</code> 的读写权限'],['复制令牌粘贴到下方，保存前会自动校验权限']],
@@ -377,7 +377,7 @@ function credentialCatalogAction(action,row,catalog,button){
 }
 // Platform features depend on these, in the order people should configure them.
 const CREDENTIAL_RECOMMENDED=['gitToken','codeBuddyApiKey'];
-const CREDENTIAL_PAT_WARNING='请填写 GitHub <b>个人访问令牌（PAT）</b>，为目标仓库授予 <b>Contents</b> 和 <b>Pull requests</b> 的读写权限；少勾权限会导致克隆 / 推送仓库失败。';
+const CREDENTIAL_PAT_WARNING='请填写<b>个人访问令牌（PAT）</b>：GitHub 需要 <b>Contents</b> 与 <b>Pull requests</b> 读写，云效需要「代码管理」读 +「合并请求」读写；少勾权限会导致克隆 / 推送或建合并请求失败。';
 function credentialKind(key){return CREDENTIAL_KINDS.find(kind=>kind.key===key)||null}
 function credentialConfigured(kind,user){return !!credentialValue(user,kind.agentCli?kind.key+'.apiKeyConfigured':kind.key+'Configured')}
 function credentialUser(){return userById(state.currentUser?.id)||{}}
@@ -466,6 +466,17 @@ function credentialGitProvider(){
   const github=repositories.some(repo=>(repo.provider||'gongfeng')==='github');
   return codeup&&!github?'codeup':'github';
 }
+// 令牌是同一个槽位，但校验/保存必须知道是哪个托管平台：云效没有 OAuth，
+// 只有个人访问令牌；新建项目里还没有任何仓库时必须有显式选择，否则会拿云效令牌去问 GitHub。
+const GIT_TOKEN_PROVIDERS=[['github','GitHub'],['codeup','云效 Codeup'],['gongfeng','工蜂']];
+function gitTokenProviderDefault(){return state.gitTokenProvider||credentialGitProvider()}
+function gitTokenProviderOptionsHTML(selected){
+  const current=selected||gitTokenProviderDefault();
+  return GIT_TOKEN_PROVIDERS.map(([value,label])=>`<option value="${value}"${value===current?' selected':''}>${label}</option>`).join('');
+}
+function gitTokenProviderFieldHTML(selected){
+  return `<label class="credential-field"><span>令牌所属平台<em>校验和保存都按这个平台走</em></span><div class="credential-input is-plain is-select"><select name="gitProvider">${gitTokenProviderOptionsHTML(selected)}</select></div><small>云效需要「代码管理」读 +「合并请求」读写；GitHub 需要 Contents 与 Pull requests 读写。</small></label>`;
+}
 function gitTokenProviderLabel(result){
   const provider=String(result?.provider||'').toLowerCase();
   if(provider==='codeup')return '云效';
@@ -542,7 +553,7 @@ function gitTokenDetailHTML(kind,user){
     :result.error?`<span class="is-err">${escapeHTML(result.error)}</span>${ago}`
     :!result.valid?`<span class="is-err">令牌有效但缺少权限 ${escapeHTML(missing.join('、'))}</span>${ago}`
     :`<span class="is-ok">令牌有效</span>${ago}`;
-  return `<dl class="credential-kv" data-git-detail><dt>来源</dt><dd>${user.gitTokenOAuth?'工蜂授权 · 到期自动续期':'GitHub 授权 / 个人访问令牌'}</dd><dt>权限</dt><dd>${scopes||'<span class="is-muted">校验后显示</span>'}</dd><dt>最近校验</dt><dd>${checked}</dd><dt>用于</dt><dd>${escapeHTML(kind.description)}</dd></dl>`;
+  return `<dl class="credential-kv" data-git-detail><dt>来源</dt><dd>${user.gitTokenOAuth?'工蜂授权 · 到期自动续期':`${gitTokenProviderLabel(result)||'GitHub'} 个人访问令牌`}</dd><dt>权限</dt><dd>${scopes||'<span class="is-muted">校验后显示</span>'}</dd><dt>最近校验</dt><dd>${checked}</dd><dt>用于</dt><dd>${escapeHTML(kind.description)}</dd></dl>`;
 }
 function gitTokenEditorHTML(kind,user){
   const failure=gitTokenFailure(gitTokenVerifyFor({id:state.currentUser?.id})?.result);
@@ -552,7 +563,8 @@ function gitTokenEditorHTML(kind,user){
     <div class="credential-swap">
       <div class="credential-bar" data-credential-pane="bar">${credentialOAuthHTML('重新授权','')}<button type="button" class="credential-btn ${failure?'primary':'secondary'} credential-ink" data-credential-act="replace">${credentialGlyph('key',14)}<span>手动更换令牌</span></button><button type="button" class="credential-btn ghost danger credential-ink" data-credential-act="delete">${credentialGlyph('trash',14)}<span>删除凭证</span></button></div>
       <div class="credential-replace is-off" data-credential-pane="form" inert>
-        ${credentialFieldHTML({label:'新的个人访问令牌',note:'保存前会校验有效性与权限',name:'secret',placeholder:'粘贴 GitHub 个人访问令牌（PAT）',hint:GIT_TOKEN_REPLACE_HINT})}
+        ${gitTokenProviderFieldHTML()}
+        ${credentialFieldHTML({label:'新的个人访问令牌',note:'保存前会校验有效性与权限',name:'secret',placeholder:'粘贴个人访问令牌（PAT）',hint:GIT_TOKEN_REPLACE_HINT})}
         <div class="credential-replace-acts"><button type="button" class="credential-btn ghost credential-ink" data-credential-act="cancel">取消</button><button type="button" class="credential-btn primary credential-ink" data-credential-act="save" disabled>校验并保存</button></div>
         <p class="credential-vline git-token-verify-status" data-git-verify-line role="status"></p>
       </div>
@@ -727,11 +739,12 @@ async function deleteCredential(key){
   return saved;
 }
 // Git 令牌必须先校验通过才保存，校验失败时什么都不写入。
-async function verifyAndSaveGitToken(token){
-  const user=state.currentUser;
-  const result=await api(`/api/users/${user.id}/git-token/verify`,{method:'POST',body:JSON.stringify({token,provider:credentialGitProvider()}),silent:true});
+async function verifyAndSaveGitToken(token,provider){
+  const user=state.currentUser,target=provider||gitTokenProviderDefault();
+  const result=await api(`/api/users/${user.id}/git-token/verify`,{method:'POST',body:JSON.stringify({token,provider:target}),silent:true});
   if(!result?.valid)return {saved:false,result};
   const saved=await saveCredential('gitToken',{secret:token},{verified:true});
+  state.gitTokenProvider=target;
   state.gitTokenVerify={userId:user.id,result,checkedAt:Date.now()};
   return {saved:true,result,user:saved};
 }
@@ -742,7 +755,7 @@ async function refreshGitTokenStatus(options={}){
   state.gitTokenVerify={userId:user.id,busy:true,result:previous?.result,checkedAt:previous?.checkedAt};
   repaintCredentialRow('gitToken');
   let result;
-  try{result=await api(`/api/users/${user.id}/git-token/verify?provider=${encodeURIComponent(credentialGitProvider())}`,{silent:true})}
+  try{result=await api(`/api/users/${user.id}/git-token/verify?provider=${encodeURIComponent(gitTokenProviderDefault())}`,{silent:true})}
   catch(err){result={valid:false,error:err.message}}
   if(Number(state.currentUser?.id)!==Number(user.id))return result;
   state.gitTokenVerify={userId:user.id,result,checkedAt:Date.now()};
@@ -775,7 +788,7 @@ async function submitCredentialEditor(row,button){
   setCredentialButtonBusy(button,key==='gitToken'?'校验中':'保存中');
   try{
     if(key==='gitToken'){
-      const outcome=await verifyAndSaveGitToken(secret);
+      const outcome=await verifyAndSaveGitToken(secret,form.querySelector('[name="gitProvider"]')?.value);
       if(!outcome.saved){
         setCredentialButtonBusy(button,'');
         const line=row.querySelector('[data-git-verify-line]'),warning=row.querySelector('.git-token-pat-warning');
@@ -905,7 +918,7 @@ function openCredentialWizard(key){
   const kind=preset||CREDENTIAL_RECOMMENDED.map(credentialKind).find(k=>!credentialConfigured(k,user))||CREDENTIAL_KINDS.find(k=>!credentialConfigured(k,user))||null;
   if(credentialWizard)closeCredentialWizard(true);
   credentialUI().open&&toggleCredentialRow(credentialUI().open,false);
-  credentialWizard={step:preset?2:1,kind:kind?.key||null,direct:!!preset,secret:'',extra:credentialWizardDefaults(kind,user),protocol:credentialProtocol(kind||{},user),saving:false,error:'',done:false,guide:{},returnFocus:document.activeElement};
+  credentialWizard={step:preset?2:1,kind:kind?.key||null,direct:!!preset,secret:'',extra:credentialWizardDefaults(kind,user),protocol:credentialProtocol(kind||{},user),provider:gitTokenProviderDefault(),saving:false,error:'',done:false,guide:{},returnFocus:document.activeElement};
   let scrim=$('#credentialWizard');
   if(scrim?.closeTimer){clearTimeout(scrim.closeTimer);scrim.closeTimer=0}
   if(!scrim){
@@ -967,7 +980,7 @@ function credentialWizardStepTwoHTML(kind){
     return `<li class="${wizard.guide[index]?'is-done':''}" data-wizard-guide="${index}"><span class="credential-guide-no">${wizard.guide[index]?credentialGlyph('check-draw',10):index+1}</span><span>${text}${url?`<a href="${escapeHTML(url)}" target="_blank" rel="noopener noreferrer" data-wizard-link="${index}"${dynamic?' data-environment-link':''}>${escapeHTML(name)} ↗</a>`:''}</span></li>`;
   }).join('');
   const github=kind.key==='gitToken';
-  const manual=wizard.githubMethod==='manual';
+  const manual=wizard.githubMethod==='manual'||(github&&wizard.provider!=='github');
   const methods=github?`<div class="github-methods" role="tablist" aria-label="GitHub 连接方式"><button type="button" role="tab" data-github-method="oauth" aria-selected="${!manual}">GitHub 授权</button><button type="button" role="tab" data-github-method="manual" aria-selected="${manual}">访问令牌</button></div>`:'';
   if(github&&!manual)return `<div class="credential-question">${credentialLogo(kind,'is-mini')}<span>连接 GitHub</span><small class="credential-description">连接后可选择仓库，用于克隆代码、创建分支和推送交付产物。</small></div>${methods}${credentialOAuthHTML('用工蜂授权','')}`;
   const validity=credentialWizardValid();
@@ -979,7 +992,7 @@ function credentialWizardStepTwoHTML(kind){
   const protocolField=kind.protocol?credentialProtocolHTML(kind,wizard.protocol||credentialProtocol(kind,{})):'';
   // The network environment decides where the key comes from, so it is chosen first.
   return `<div class="credential-question">${credentialLogo(kind,'is-mini')}<span>${github?'使用访问令牌':'配置 '+escapeHTML(kind.short)}</span><small class="credential-description">${escapeHTML(kind.description)}</small></div>${methods}<ol class="credential-guide">${guide}</ol><div class="credential-fields">
-    ${kind.extra?.options?extraField+secretField:secretField+extraField+protocolField}
+    ${kind.extra?.options?extraField+secretField:(github?gitTokenProviderFieldHTML(wizard.provider):'')+secretField+extraField+protocolField}
   </div>`;
 }
 function credentialWizardStepThreeHTML(kind){
@@ -995,7 +1008,7 @@ function credentialWizardStepThreeHTML(kind){
 }
 function credentialWizardFootHTML(){
   const wizard=credentialWizard;
-  if(wizard.step===2&&wizard.kind==='gitToken'&&wizard.githubMethod!=='manual')return '<span class="credential-kbd"><kbd>Esc</kbd> 关闭</span><span class="github-private-note">仅为当前账号授权</span>';
+  if(wizard.step===2&&wizard.kind==='gitToken'&&wizard.githubMethod!=='manual'&&wizard.provider==='github')return '<span class="credential-kbd"><kbd>Esc</kbd> 关闭</span><span class="github-private-note">仅为当前账号授权</span>';
   if(wizard.done)return `<span></span><button type="button" class="credential-btn primary credential-ink" data-wizard-done>完成</button>`;
   const back=wizard.step===1||(wizard.direct&&wizard.step===2)
     ?'<span class="credential-kbd"><kbd>Esc</kbd> 关闭</span>'
@@ -1061,6 +1074,7 @@ function markCredentialGuide(index){
 function credentialWizardInput(event){
   const wizard=credentialWizard,input=event.target;if(!wizard||!input.name)return;
   const kind=credentialKind(wizard.kind),pane=input.closest('.credential-pane');
+  if(input.name==='gitProvider'){wizard.provider=input.value;paintCredentialWizard(0);focusCredentialWizard();return}
   if(input.name==='extra')wizard.extra=input.value;
   if(input.name==='protocol')wizard.protocol=input.value;
   if(input.name==='secret')wizard.secret=input.value;
@@ -1125,7 +1139,7 @@ async function advanceCredentialWizard(){
   wizard.saving=true;wizard.error='';paintCredentialWizard(0);focusCredentialWizard();
   try{
     if(kind.key==='gitToken'){
-      const outcome=await verifyAndSaveGitToken(secret);
+      const outcome=await verifyAndSaveGitToken(secret,wizard.provider);
       if(!outcome.saved){wizard.error=`${gitTokenFailure(outcome.result)||'Git Token 校验未通过'}（未保存）`;return}
     }else await saveCredential(kind.key,{secret,...(kind.extra?{extra:wizard.extra}:{}),...(kind.protocol?{protocol:wizard.protocol}:{})});
     wizard.done=true;wizard.secret='';

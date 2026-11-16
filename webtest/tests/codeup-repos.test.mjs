@@ -151,3 +151,40 @@ test('a GitHub repository shows no Codeup webhook panel', async (t) => {
   await settle(4);
   assert.equal(app.document.querySelector('#repoDrawerWebhook').hidden, true);
 });
+
+test('the Git token wizard lets a Codeup PAT be saved without any repository', async (t) => {
+  const app = await loadApp();
+  t.after(app.close);
+  app.evaluate(`
+    state.data.users[0].id=1;
+    state.currentUser={...state.data.users[0],id:1,isGuest:false,gitTokenConfigured:false};
+    state.data.users[0]=state.currentUser;
+    state.data.repositories=[];
+    renderPersonalSettings();
+  `);
+  const row = app.document.querySelector('[data-credential-row="gitToken"]');
+  row.querySelector('[data-credential-act="setup"]').click();
+  await settle(4);
+  // No OAuth for Codeup, so the manual token pane must be reachable and offer the platform choice.
+  app.document.querySelector('[data-github-method="manual"]').click();
+  await settle(2);
+  const select = app.document.querySelector('#credentialWizard select[name="gitProvider"]');
+  assert.ok(select, 'the token pane must offer a platform choice');
+  assert.deepEqual([...select.options].map((option) => option.value), ['github', 'codeup', 'gongfeng']);
+  select.value = 'codeup';
+  select.dispatchEvent(new app.window.Event('input', { bubbles: true }));
+  await settle(2);
+  const input = app.document.querySelector('#credentialWizard [name="secret"]');
+  input.value = 'codeup-pat';
+  input.dispatchEvent(new app.window.Event('input', { bubbles: true }));
+  app.router.post('/api/users/1/git-token/verify', () => ({ valid: true, provider: 'codeup', scopes: ['repo:read'] }));
+  app.router.put('/api/users/1/credentials', { id: 1, loginName: 'owner', gitTokenConfigured: true });
+  app.document.querySelector('#credentialWizard [data-wizard-next]').click();
+  await settle(4);
+  app.document.querySelector('#credentialWizard [data-wizard-next]').click();
+  await settle(6);
+  const call = app.router.calls.find((c) => c.path === '/api/users/1/git-token/verify');
+  assert.ok(call, 'verify must be called');
+  assert.equal(call.body.provider, 'codeup');
+  assert.equal(call.body.token, 'codeup-pat');
+});
