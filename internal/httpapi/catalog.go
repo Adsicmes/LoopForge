@@ -230,11 +230,17 @@ func (h *catalogHandlers) repositories(c *gin.Context) {
 			v.DefaultBranch = "main"
 		}
 	}
+	if strings.HasPrefix(v.GongfengProjectID, domain.CodeupProvider+":") {
+		v.Provider = domain.CodeupProvider
+		if v.DefaultBranch == "" {
+			v.DefaultBranch = "master"
+		}
+	}
 	if v.Provider == "" {
 		v.Provider = "gongfeng"
 	}
-	if v.Provider != "gongfeng" && v.Provider != "github" {
-		c.JSON(400, map[string]string{"error": "provider must be github or gongfeng"})
+	if v.Provider != "gongfeng" && v.Provider != "github" && v.Provider != domain.CodeupProvider {
+		c.JSON(400, map[string]string{"error": "provider must be github, gongfeng or codeup"})
 		return
 	}
 	if v.DefaultBranch == "" {

@@ -49,15 +49,20 @@ func (h *usersHandlers) verifyGitToken(c *gin.Context) {
 		c.JSON(http.StatusForbidden, gitTokenVerifyResult{Error: "只能校验当前登录用户的凭据"})
 		return
 	}
+	provider := strings.ToLower(strings.TrimSpace(c.Query("provider")))
 	token := ""
 	if c.Request.Method == http.MethodPost {
 		var req struct {
-			Token string `json:"token"`
+			Token    string `json:"token"`
+			Provider string `json:"provider"`
 		}
 		if !decode(c, &req) {
 			return
 		}
 		token = strings.TrimSpace(req.Token)
+		if p := strings.ToLower(strings.TrimSpace(req.Provider)); p != "" {
+			provider = p
+		}
 	}
 	if token == "" {
 		if h.repo == nil {
@@ -78,6 +83,13 @@ func (h *usersHandlers) verifyGitToken(c *gin.Context) {
 	}
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
 	defer cancel()
+	// The credential slot is shared by every hosting provider; the caller names
+	// the provider it wants checked. GitHub stays the default so an existing
+	// client that sends no provider keeps its behaviour.
+	if provider == "codeup" {
+		c.JSON(http.StatusOK, verifyCodeupToken(ctx, token))
+		return
+	}
 	c.JSON(http.StatusOK, verifyGitHubToken(ctx, token))
 }
 
