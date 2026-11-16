@@ -72,7 +72,8 @@ type ScheduleJob struct {
 	Enabled              bool                  `json:"enabled"`
 	ProjectID            string                `json:"projectId"`
 	// Source limits which issues a trigger job starts.
-	// Empty means 工蜂 and TAPD (and platform-local issues). "gongfeng" or "tapd" starts only that source.
+	// Empty means every synced source and platform-local issues. "gongfeng",
+	// "tapd" or "yunxiao" starts only that source.
 	Source           string `json:"source,omitempty"`
 	TAPDWorkspaceID  string `json:"tapdWorkspaceId,omitempty"`
 	TAPDIterationID  string `json:"tapdIterationId,omitempty"`

@@ -85,5 +85,5 @@ func IsRequirementWorkItem(issue Issue) bool {
 	if source == "gongfeng" || kind == "issue" {
 		return false
 	}
-	return kind == "requirement" || source == "tapd" || source == "local" || source == ""
+	return kind == "requirement" || source == "tapd" || source == "local" || source == "yunxiao" || source == ""
 }

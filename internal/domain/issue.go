@@ -295,6 +295,8 @@ func (i Issue) IdentityBlock() string {
 		b.WriteString("TAPD")
 	case "gongfeng":
 		b.WriteString("工蜂")
+	case "yunxiao":
+		b.WriteString("云效")
 	default:
 		b.WriteString("本地")
 	}
