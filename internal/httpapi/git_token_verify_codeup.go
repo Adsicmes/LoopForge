@@ -37,5 +37,5 @@ func verifyCodeupToken(ctx context.Context, token string) gitTokenVerifyResult {
 	}
 	// Yunxiao does not report token scopes; a token that resolves to a user is
 	// valid, and repository access is checked on the first real API call.
-	return gitTokenVerifyResult{Valid: true, Login: login}
+	return gitTokenVerifyResult{Valid: true, Provider: "codeup", Login: login}
 }

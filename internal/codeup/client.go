@@ -412,7 +412,47 @@ func (c *Client) SearchWorkItems(ctx context.Context, spaceID, category, subject
 		}
 		body["conditions"] = string(conditions)
 	}
+	return c.searchWorkItems(ctx, spaceID, body)
+}
+
+// FindWorkItem looks a work item up by its identifier (for example "DEMO-12").
+// The OpenAPI has no get-by-identifier call on this resource, so the search is
+// filtered on the identifier field and the exact match is picked here.
+func (c *Client) FindWorkItem(ctx context.Context, spaceID, identifier string) (WorkItem, bool, error) {
+	identifier = strings.TrimSpace(identifier)
+	if identifier == "" {
+		return WorkItem{}, false, fmt.Errorf("工作项编号不能为空")
+	}
+	conditions, err := json.Marshal(map[string]any{"conditionGroups": [][]map[string]any{{
+		{"fieldIdentifier": "identifier", "operator": "CONTAINS", "value": []string{identifier}, "toValue": nil, "className": "string", "format": "input"},
+	}}})
+	if err != nil {
+		return WorkItem{}, false, err
+	}
+	items, err := c.searchWorkItems(ctx, spaceID, map[string]any{
+		"category":   "",
+		"page":       1,
+		"perPage":    50,
+		"conditions": string(conditions),
+	})
+	if err != nil {
+		return WorkItem{}, false, err
+	}
+	for _, item := range items {
+		if strings.EqualFold(strings.TrimSpace(item.Identifier), identifier) {
+			return item, true, nil
+		}
+	}
+	return WorkItem{}, false, nil
+}
+
+func (c *Client) searchWorkItems(ctx context.Context, spaceID string, body map[string]any) ([]WorkItem, error) {
 	var out []WorkItem
+	// An empty category means "any work item type"; sending the key with an
+	// empty value makes the OpenAPI reject the query.
+	if value, ok := body["category"].(string); ok && strings.TrimSpace(value) == "" {
+		delete(body, "category")
+	}
 	path := c.orgPath("projex") + "/workitems:search"
 	if strings.TrimSpace(spaceID) != "" {
 		path += "?spaceId=" + url.QueryEscape(spaceID)

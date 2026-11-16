@@ -38,6 +38,12 @@ type CodeupRepoInfo struct {
 // hex characters. It is what makes a bare org/repo path unambiguous.
 var codeupOrganizationPattern = regexp.MustCompile(`^[0-9a-f]{24}$`)
 
+// IsCodeupOrganizationID reports whether s has the shape of a Yunxiao
+// organization id (24 lowercase hex characters).
+func IsCodeupOrganizationID(s string) bool {
+	return codeupOrganizationPattern.MatchString(strings.TrimSpace(s))
+}
+
 // codeupSubpages are URL suffixes that point at a sub page of a repository,
 // never at the repository itself.
 var codeupSubpages = []string{"/tree/", "/blob/", "/merge_request", "/change/", "/commits", "/branches", "/tags", "/settings", "/issues", "/pipelines", "/webhook"}
@@ -87,7 +93,7 @@ func ParseCodeupRepoURL(raw string) (CodeupRepoInfo, bool) {
 		if i := strings.Index(first, "/"); i > 0 {
 			first = first[:i]
 		}
-		if !codeupOrganizationPattern.MatchString(first) {
+		if !IsCodeupOrganizationID(first) {
 			return CodeupRepoInfo{}, false
 		}
 		path = pathSource

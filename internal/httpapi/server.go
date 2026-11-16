@@ -247,6 +247,10 @@ func newWithNotifications(s *repo.Store, e *engine.Engine, syncSvc *tracker.Serv
 	g.POST("/api/auth/github/device", api.github.start)
 	g.POST("/api/auth/github/poll", api.github.poll)
 	g.GET("/api/auth/github/repositories", api.github.repositories)
+	// Codeup has no OAuth app to borrow; the picker uses the caller's personal
+	// access token, so the route hangs off the user handlers rather than a
+	// provider-connection handler.
+	g.GET("/api/codeup/repositories", api.users.codeupRepositories)
 	g.GET("/api/auth/exchange", api.auth.authExchange)
 	g.POST("/api/auth/exchange", api.auth.authExchange)
 	g.POST("/api/auth/logout", api.auth.authLogout)
@@ -361,6 +365,7 @@ func newWithNotifications(s *repo.Store, e *engine.Engine, syncSvc *tracker.Serv
 	g.PUT("/api/issues", api.issues.issues)
 	g.POST("/api/issues", api.issues.issues)
 	g.POST("/api/issues/import-tapd", api.issues.importTAPD)
+	g.POST("/api/issues/import-codeup", api.issues.importCodeup)
 	// master(net/http) 的 /api/issues/<id> 子树对任意方法先做存在性检查
 	//（404 JSON），再按 (子路径, method) 分派，不匹配的组合兜底 404 text。
 	// gin 用 Any 注册 + handler 内方法分派复刻该语义。

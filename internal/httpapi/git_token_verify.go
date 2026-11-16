@@ -27,11 +27,12 @@ var gongfengAPIBase = "https://git.example.com/api/v3"
 var requiredGitTokenScopes = []string{"read_repository", "write_repository"}
 
 type gitTokenVerifyResult struct {
-	Valid   bool     `json:"valid"`
-	Login   string   `json:"login,omitempty"`
-	Scopes  []string `json:"scopes,omitempty"`
-	Missing []string `json:"missing,omitempty"`
-	Error   string   `json:"error,omitempty"`
+	Valid    bool     `json:"valid"`
+	Provider string   `json:"provider,omitempty"`
+	Login    string   `json:"login,omitempty"`
+	Scopes   []string `json:"scopes,omitempty"`
+	Missing  []string `json:"missing,omitempty"`
+	Error    string   `json:"error,omitempty"`
 }
 
 // verifyGitToken 校验当前登录用户的 GitHub Git Token 是否生效。
@@ -86,8 +87,12 @@ func (h *usersHandlers) verifyGitToken(c *gin.Context) {
 	// The credential slot is shared by every hosting provider; the caller names
 	// the provider it wants checked. GitHub stays the default so an existing
 	// client that sends no provider keeps its behaviour.
-	if provider == "codeup" {
+	switch provider {
+	case "codeup":
 		c.JSON(http.StatusOK, verifyCodeupToken(ctx, token))
+		return
+	case "gongfeng":
+		c.JSON(http.StatusOK, verifyGongfengToken(ctx, token))
 		return
 	}
 	c.JSON(http.StatusOK, verifyGitHubToken(ctx, token))
@@ -117,7 +122,7 @@ func verifyGitHubToken(ctx context.Context, token string) gitTokenVerifyResult {
 	}
 	// Fine-grained token permissions are repository-specific; /user validates
 	// identity only. Repository access is verified when cloning or importing.
-	return gitTokenVerifyResult{Valid: true, Login: user.Login}
+	return gitTokenVerifyResult{Valid: true, Provider: "github", Login: user.Login}
 }
 
 func verifyGongfengToken(ctx context.Context, token string) gitTokenVerifyResult {
@@ -126,7 +131,7 @@ func verifyGongfengToken(ctx context.Context, token string) gitTokenVerifyResult
 		return gitTokenVerifyResult{Valid: false, Error: err.Error()}
 	}
 	missing := missingGitTokenScopes(scopes, requiredGitTokenScopes)
-	return gitTokenVerifyResult{Valid: len(missing) == 0, Login: login, Scopes: scopes, Missing: missing}
+	return gitTokenVerifyResult{Valid: len(missing) == 0, Provider: "gongfeng", Login: login, Scopes: scopes, Missing: missing}
 }
 
 // gongfengTokenSelf 优先用 /personal_access_tokens/self 读取权限范围。
