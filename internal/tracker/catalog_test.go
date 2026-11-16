@@ -34,6 +34,14 @@ func (f projectAuthFixture) User(id int64) (domain.User, bool) {
 	return user, ok
 }
 
+func (f projectAuthFixture) Users() []domain.User {
+	out := make([]domain.User, 0, len(f.users))
+	for _, user := range f.users {
+		out = append(out, user)
+	}
+	return out
+}
+
 func (f projectAuthFixture) MCPServers() []domain.MCPServerDefinition { return f.servers }
 
 func TestBindTrackerMCPPrefersCatalogHeadersOverEnvToken(t *testing.T) {

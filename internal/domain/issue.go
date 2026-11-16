@@ -216,12 +216,27 @@ func (i Issue) ManuallyClosed() bool {
 // TrackerClosed reads the tracker's raw state so a lagging local status cannot
 // make an externally closed work item executable.
 func (i Issue) TrackerClosed() bool {
-	if i.ExternalRef == nil || (i.Source != "gongfeng" && i.Source != "tapd" && i.Source != "github") {
+	if i.ExternalRef == nil {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(i.Source)) {
+	case "gongfeng", "tapd", "github", "yunxiao":
+	default:
 		return false
 	}
 	state := strings.ToLower(strings.TrimSpace(i.ExternalRef.ExternalState))
-	return state == "closed" || state == "已关闭"
+	switch state {
+	case "closed", "done", "completed", "cancelled", "canceled", "rejected", "已关闭", "已完成", "已拒绝", "取消":
+		return true
+	default:
+		return false
+	}
 }
+
+// ExternalClosed reports whether the remote tracker has closed the work item.
+// Unlike GongfengClosed it also covers TAPD, GitHub and Yunxiao; callers that
+// gate dispatch should use this method.
+func (i Issue) ExternalClosed() bool { return i.TrackerClosed() }
 
 // DeliveryLocked reports whether a merged MR or completed delivery has made this work item final.
 // A user can explicitly reopen it to allow a follow-up run.

@@ -29,6 +29,9 @@ func (s *Service) EnsureAndMergeBranchMR(project, sourceBranch, targetBranch, ti
 	if strings.HasPrefix(project, "github:") {
 		return s.githubMergeBranch(project, sourceBranch, targetBranch, title, description)
 	}
+	if domain.IsYunxiaoRemote(project) {
+		return s.yunxiaoEnsureAndMergeBranchMR(project, sourceBranch, targetBranch, title, description)
+	}
 	project = strings.TrimSpace(project)
 	src := strings.TrimSpace(sourceBranch)
 	tgt := strings.TrimSpace(targetBranch)
@@ -139,6 +142,9 @@ type gongfengListedMR struct {
 func (s *Service) FindBranchMR(project, sourceBranch string) (domain.DeliveryMR, bool, error) {
 	if strings.HasPrefix(project, "github:") {
 		return s.githubFindBranch(project, sourceBranch)
+	}
+	if domain.IsYunxiaoRemote(project) {
+		return s.yunxiaoFindBranchMR(project, sourceBranch)
 	}
 	project = strings.TrimSpace(project)
 	src := strings.TrimSpace(sourceBranch)

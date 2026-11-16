@@ -37,7 +37,10 @@ func ParseRepositoryURL(raw string) (GongfengRepoInfo, bool) {
 			return GongfengRepoInfo{}, false
 		}
 		base := "https://github.com/" + path
-		return GongfengRepoInfo{Project: "github:" + path, Name: strings.TrimSuffix(parts[1], ".git"), WebURL: base, CloneURL: base + ".git"}, true
+		return GongfengRepoInfo{Provider: "github", Project: "github:" + path, Name: strings.TrimSuffix(parts[1], ".git"), WebURL: base, CloneURL: base + ".git"}, true
+	}
+	if info, ok := ParseYunxiaoRepoURL(raw); ok {
+		return info, true
 	}
 	return ParseGongfengRepoURL(raw)
 }

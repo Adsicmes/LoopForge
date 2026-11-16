@@ -22,16 +22,37 @@ type DeliveryMR struct {
 	GongfengState string `json:"-"`
 }
 
-// GongfengMRURL is the canonical web URL of a Gongfeng merge request.
-func GongfengMRURL(project string, iid int) string {
+// YunxiaoWebBase is the web base used to build Codeup merge request links.
+// Region deployments override it, e.g. https://<org>.devops.aliyuncs.com.
+var YunxiaoWebBase = "https://" + CodeupHost
+
+// MRURL returns the canonical web URL of a hosted merge request. provider is
+// the repository provider (github, yunxiao, ...); the project identity alone
+// decides when provider is empty or generic.
+func MRURL(provider, project string, iid int) string {
 	project = strings.Trim(strings.TrimSpace(project), "/")
 	if project == "" || iid <= 0 {
 		return ""
 	}
-	if strings.HasPrefix(project, "github:") {
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	if provider == RepositoryProviderYunxiao || strings.HasPrefix(project, "codeup:") {
+		path := strings.TrimPrefix(project, "codeup:")
+		base := strings.TrimRight(strings.TrimSpace(YunxiaoWebBase), "/")
+		if base == "" {
+			base = "https://" + CodeupHost
+		}
+		return fmt.Sprintf("%s/%s/change/%d", base, path, iid)
+	}
+	if provider == "github" || strings.HasPrefix(project, "github:") {
 		return fmt.Sprintf("https://github.com/%s/pull/%d", strings.TrimPrefix(project, "github:"), iid)
 	}
-	return fmt.Sprintf("https://git.example.com/%s/-/merge_requests/%d", project, iid)
+	return fmt.Sprintf("https://%s/%s/-/merge_requests/%d", GongfengRepoHost, project, iid)
+}
+
+// GongfengMRURL is the compatibility wrapper of MRURL for callers that only
+// know the project identity.
+func GongfengMRURL(project string, iid int) string {
+	return MRURL("", project, iid)
 }
 
 // AggregateDeliveryMRState folds per-MR states into the work item label state.

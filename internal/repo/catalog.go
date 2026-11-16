@@ -803,16 +803,17 @@ const (
 // DefaultWorkflowID returns the production SOP to bind when an issue has none.
 // Gongfeng issues use the repair loop; TAPD / local requirements use delivery.
 func DefaultWorkflowID(source, kind string) string {
-	if source == "gongfeng" || kind == "issue" {
+	if source == "gongfeng" || kind == "issue" || (source == "yunxiao" && kind == "bug") {
 		return issueFixWorkflowID
 	}
 	return requirementWorkflowID
 }
 
 // isRequirement reports whether an issue is a requirement (delivery) rather than
-// a defect/repair item.
+// a defect/repair item. Yunxiao Bug items use the repair SOP; TAPD bugs keep
+// their historical requirement workflow unless Kind is explicitly "issue".
 func isRequirement(source, kind string) bool {
-	return source != "gongfeng" && kind != "issue"
+	return !(source == "gongfeng" || kind == "issue" || (source == "yunxiao" && kind == "bug"))
 }
 
 // bindDefaultWorkflow assigns the SOP an issue should run when it has none yet.

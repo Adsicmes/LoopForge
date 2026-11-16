@@ -285,7 +285,7 @@ func (r *IssuesRepo) saveIssueLocked(v domain.Issue, fromSync, existingOnly bool
 		} else {
 			v.CloseSource = ""
 		}
-		if v.Status == "done" || v.Status == "closed" || v.Status == "cancelled" || v.GongfengClosed() {
+		if v.Status == "done" || v.Status == "closed" || v.Status == "cancelled" || v.ExternalClosed() {
 			v.AutomationState = "ignored"
 		}
 	}

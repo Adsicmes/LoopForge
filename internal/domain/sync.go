@@ -10,17 +10,20 @@ import (
 // SyncConfig holds platform-level external sync settings. TAPD workspace/iteration
 // belong on each Project; legacy sync_config TAPD fields are migrated on startup.
 type SyncConfig struct {
-	PlaybookSeedRev     int       `json:"playbookSeedRev,omitempty"`
-	GongfengProjectID   string    `json:"gongfengProjectId"`
-	GongfengMCPURL      string    `json:"gongfengMcpUrl"`
-	TAPDWorkspaceID     string    `json:"tapdWorkspaceId"`
-	TAPDIterationID     string    `json:"tapdIterationId"`
-	TAPDMCPURL          string    `json:"tapdMcpUrl"`
-	AutoSyncEnabled     bool      `json:"autoSyncEnabled"`
-	AutoSyncIntervalSec int       `json:"autoSyncIntervalSec"`
-	LastSyncAt          time.Time `json:"lastSyncAt"`
-	LastSyncStatus      string    `json:"lastSyncStatus"`
-	LastSyncError       string    `json:"lastSyncError,omitempty"`
+	PlaybookSeedRev       int       `json:"playbookSeedRev,omitempty"`
+	GongfengProjectID     string    `json:"gongfengProjectId"`
+	GongfengMCPURL        string    `json:"gongfengMcpUrl"`
+	TAPDWorkspaceID       string    `json:"tapdWorkspaceId"`
+	TAPDIterationID       string    `json:"tapdIterationId"`
+	TAPDMCPURL            string    `json:"tapdMcpUrl"`
+	YunxiaoAPIBase        string    `json:"yunxiaoApiBase,omitempty"`
+	YunxiaoOrganizationID string    `json:"yunxiaoOrganizationId,omitempty"`
+	YunxiaoMCPURL         string    `json:"yunxiaoMcpUrl,omitempty"`
+	AutoSyncEnabled       bool      `json:"autoSyncEnabled"`
+	AutoSyncIntervalSec   int       `json:"autoSyncIntervalSec"`
+	LastSyncAt            time.Time `json:"lastSyncAt"`
+	LastSyncStatus        string    `json:"lastSyncStatus"`
+	LastSyncError         string    `json:"lastSyncError,omitempty"`
 }
 
 const DefaultIntegrateBranch = "agentflow/integration"
@@ -168,10 +171,10 @@ func NormalizeScheduleSource(raw string) (string, error) {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case "", "all", "both":
 		return "", nil
-	case "github", "gongfeng", "tapd":
+	case "github", "gongfeng", "tapd", "yunxiao":
 		return strings.ToLower(strings.TrimSpace(raw)), nil
 	default:
-		return "", fmt.Errorf("来源只能是工蜂、TAPD，或两边都同步")
+		return "", fmt.Errorf("来源只能是工蜂、TAPD、云效，或全部同步")
 	}
 }
 

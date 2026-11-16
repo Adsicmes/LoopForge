@@ -331,7 +331,7 @@ func (s *Service) eligibleIssues(job domain.ScheduleJob, matched []domain.Issue)
 		if job.ResolveWorkflow(issue) == "" {
 			continue
 		}
-		if s.repo.IssueHasTask(issue.ID) || issue.DeliveryLocked() || issue.GongfengClosed() || issue.Status == "done" || issue.Status == "closed" || issue.Status == "cancelled" || issue.AutomationState == "ignored" {
+		if s.repo.IssueHasTask(issue.ID) || issue.DeliveryLocked() || issue.ExternalClosed() || issue.Status == "done" || issue.Status == "closed" || issue.Status == "cancelled" || issue.AutomationState == "ignored" {
 			continue
 		}
 		eligible = append(eligible, issue)

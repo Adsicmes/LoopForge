@@ -314,7 +314,7 @@ func (h issuesHandlers) issues(c *gin.Context) {
 		if !found && !repo.IssueBoundToTracker(v) {
 			target := strings.ToLower(strings.TrimSpace(req.SyncTarget))
 			switch target {
-			case "gongfeng", "tapd":
+			case "gongfeng", "tapd", "yunxiao":
 				created, err := h.createIssueOnTracker(v, target)
 				if err != nil {
 					respond(c, err)
@@ -338,7 +338,7 @@ func (h issuesHandlers) issues(c *gin.Context) {
 				v.Source = "local"
 				v.ExternalRef = nil
 			default:
-				c.JSON(400, map[string]string{"error": "syncTarget 只能是 local、gongfeng 或 tapd"})
+				c.JSON(400, map[string]string{"error": "syncTarget 只能是 local、gongfeng、tapd 或 yunxiao"})
 				return
 			}
 		}
@@ -420,7 +420,7 @@ func validateManualTapdID(v domain.Issue, syncTarget string) error {
 	if v.TapdID == "" {
 		return nil
 	}
-	if v.ExternalRef != nil || strings.EqualFold(v.Source, "tapd") || strings.EqualFold(v.Source, "gongfeng") || strings.EqualFold(syncTarget, "tapd") || strings.EqualFold(syncTarget, "gongfeng") {
+	if v.ExternalRef != nil || strings.EqualFold(v.Source, "tapd") || strings.EqualFold(v.Source, "gongfeng") || strings.EqualFold(v.Source, "yunxiao") || strings.EqualFold(syncTarget, "tapd") || strings.EqualFold(syncTarget, "gongfeng") || strings.EqualFold(syncTarget, "yunxiao") {
 		return HTTPError{Status: http.StatusBadRequest, Message: "手动 TAPD ID 仅用于平台需求；同步单请使用原始外部 ID"}
 	}
 	for _, digit := range v.TapdID {
@@ -863,7 +863,9 @@ func (h issuesHandlers) createIssueOnTracker(v domain.Issue, target string) (dom
 		return h.sync.CreateGongfengIssue(h.repo, v)
 	case "tapd":
 		return h.sync.CreateTAPDStory(h.repo, v)
+	case "yunxiao":
+		return h.sync.CreateYunxiaoWorkitem(h.repo, v)
 	default:
-		return v, fmt.Errorf("syncTarget must be gongfeng or tapd")
+		return v, fmt.Errorf("syncTarget must be gongfeng, tapd or yunxiao")
 	}
 }

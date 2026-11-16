@@ -83,7 +83,7 @@ func (h *syncHandlers) syncCreate(c *gin.Context) {
 		c.JSON(404, map[string]string{"error": "issue not found"})
 		return
 	}
-	if (req.Target == "tapd" || req.Target == "gongfeng") && strings.TrimSpace(issue.TapdID) != "" {
+	if (req.Target == "tapd" || req.Target == "gongfeng" || req.Target == "yunxiao") && strings.TrimSpace(issue.TapdID) != "" {
 		c.JSON(http.StatusConflict, map[string]string{"error": "该平台需求已手动关联 TAPD ID；如需新建外部单据，请先清空统计关联 ID"})
 		return
 	}
@@ -101,8 +101,10 @@ func (h *syncHandlers) syncCreate(c *gin.Context) {
 		updated, err = h.sync.CreateGongfengIssue(h.repo, issue)
 	case "tapd":
 		updated, err = h.sync.CreateTAPDStory(h.repo, issue)
+	case "yunxiao":
+		updated, err = h.sync.CreateYunxiaoWorkitem(h.repo, issue)
 	default:
-		c.JSON(400, map[string]string{"error": "target must be gongfeng or tapd"})
+		c.JSON(400, map[string]string{"error": "target must be gongfeng, tapd or yunxiao"})
 		return
 	}
 	if err != nil {

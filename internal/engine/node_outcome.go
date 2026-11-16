@@ -127,7 +127,7 @@ func isMaxTurnsErr(err error) bool {
 	return strings.Contains(msg, "max turns") || strings.Contains(msg, "executor reached max turns")
 }
 
-var errGongfengIssueClosed = fmt.Errorf("工蜂 Issue 已关闭，不能触发 SOP")
+var errGongfengIssueClosed = fmt.Errorf("外部 Issue 已关闭，不能触发 SOP")
 
 func forbidClosedGongfengIssue(st *repo.Store, r domain.Run) error {
 	id := strings.TrimSpace(r.ExecutionContext.IssueID)
@@ -135,7 +135,7 @@ func forbidClosedGongfengIssue(st *repo.Store, r domain.Run) error {
 		return nil
 	}
 	issue, ok := st.Issue(id)
-	if ok && issue.GongfengClosed() {
+	if ok && issue.ExternalClosed() {
 		return errGongfengIssueClosed
 	}
 	return nil

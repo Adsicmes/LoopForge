@@ -8,11 +8,30 @@ import (
 	"time"
 )
 
-// Gongfeng MCP often returns http://git.example.com/.../merge_requests/N. Accept
-// either scheme and store the canonical https URL.
-var githubPRURL = regexp.MustCompile(`https?://github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/pull/(\d+)`)
+// Hosted MCP servers often return http:// links. Accept either scheme and
+// store the canonical https URL.
+var (
+	githubPRURL   = regexp.MustCompile(`https?://github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/pull/(\d+)`)
+	gongfengMRURL = regexp.MustCompile(`https?://git\.example\.com/([^\s"'<>#]+)/merge_requests/(\d+)`)
+	// codeupMRURL matches Codeup change requests on the public host as well as
+	// Region stations such as https://<org>.devops.aliyuncs.com/.../change/1.
+	codeupMRURL = regexp.MustCompile(`https?://([A-Za-z0-9.-]+)/([^\s"'<>#?]+)/change/(\d+)`)
+)
 
-var gongfengMRURL = regexp.MustCompile(`https?://git\.example\.com/([^\s"'<>#]+)/merge_requests/(\d+)`)
+// MRRef is one hosted merge request URL extracted from free text.
+type MRRef struct {
+	Provider string // github, gongfeng or yunxiao
+	Project  string // github:owner/repo, group/repo or codeup:org/path
+	IID      int
+	URL      string
+}
+
+// MRProviderGitHub and MRProviderGongfeng are the legacy hosted providers the
+// unified parser also recognizes. Codeup uses RepositoryProviderYunxiao.
+const (
+	MRProviderGitHub   = "github"
+	MRProviderGongfeng = "gongfeng"
+)
 
 // GongfengMRRef is one merge request URL extracted from free text.
 type GongfengMRRef struct {
@@ -21,7 +40,7 @@ type GongfengMRRef struct {
 	URL     string
 }
 
-// ParseGongfengMR extracts the first Gongfeng merge request URL from text.
+// ParseGongfengMR extracts the first hosted merge request URL from text.
 func ParseGongfengMR(text string) (project string, iid int, url string, ok bool) {
 	refs := ParseGongfengMRs(text)
 	if len(refs) == 0 {
@@ -30,31 +49,89 @@ func ParseGongfengMR(text string) (project string, iid int, url string, ok bool)
 	return refs[0].Project, refs[0].IID, refs[0].URL, true
 }
 
-// ParseGongfengMRs extracts unique Gongfeng merge request URLs in appearance order.
+// ParseGongfengMRs is the compatibility wrapper of ParseMRs.
 func ParseGongfengMRs(text string) []GongfengMRRef {
-	for _, match := range githubPRURL.FindAllStringSubmatch(text, -1) {
-		text = strings.ReplaceAll(text, match[0], "https://git.example.com/github:"+match[1]+"/merge_requests/"+match[2])
-	}
-	matches := gongfengMRURL.FindAllStringSubmatch(text, -1)
-	if len(matches) == 0 {
+	refs := ParseMRs(text)
+	if len(refs) == 0 {
 		return nil
 	}
-	out := make([]GongfengMRRef, 0, len(matches))
-	seen := map[string]struct{}{}
-	for _, match := range matches {
-		project := strings.TrimSuffix(strings.TrimSuffix(match[1], "/"), "/-")
-		iid, _ := strconv.Atoi(match[2])
+	out := make([]GongfengMRRef, 0, len(refs))
+	for _, ref := range refs {
+		out = append(out, GongfengMRRef{Project: ref.Project, IID: ref.IID, URL: ref.URL})
+	}
+	return out
+}
+
+// ParseMRs extracts unique GitHub pull requests, Gongfeng merge requests and
+// Codeup change requests in appearance order.
+func ParseMRs(text string) []MRRef {
+	type located struct {
+		start int
+		ref   MRRef
+	}
+	hits := []located{}
+	for _, m := range githubPRURL.FindAllStringSubmatchIndex(text, -1) {
+		iid, _ := strconv.Atoi(text[m[4]:m[5]])
+		if iid <= 0 {
+			continue
+		}
+		project := "github:" + text[m[2]:m[3]]
+		hits = append(hits, located{start: m[0], ref: MRRef{
+			Provider: MRProviderGitHub, Project: project, IID: iid, URL: MRURL(MRProviderGitHub, project, iid),
+		}})
+	}
+	for _, m := range gongfengMRURL.FindAllStringSubmatchIndex(text, -1) {
+		project := strings.TrimSuffix(strings.TrimSuffix(text[m[2]:m[3]], "/"), "/-")
+		iid, _ := strconv.Atoi(text[m[4]:m[5]])
 		if project == "" || iid <= 0 {
 			continue
 		}
-		key := gongfengMRKey(project, iid)
+		hits = append(hits, located{start: m[0], ref: MRRef{
+			Provider: MRProviderGongfeng, Project: project, IID: iid, URL: MRURL(MRProviderGongfeng, project, iid),
+		}})
+	}
+	for _, m := range codeupMRURL.FindAllStringSubmatchIndex(text, -1) {
+		host := strings.ToLower(text[m[2]:m[3]])
+		if !isYunxiaoHost(host) {
+			continue
+		}
+		path := strings.TrimSuffix(strings.TrimSuffix(text[m[4]:m[5]], "/"), "/-")
+		iid, _ := strconv.Atoi(text[m[6]:m[7]])
+		if path == "" || iid <= 0 {
+			continue
+		}
+		project := "codeup:" + path
+		url := "https://" + host + "/" + path + "/change/" + strconv.Itoa(iid)
+		hits = append(hits, located{start: m[0], ref: MRRef{
+			Provider: RepositoryProviderYunxiao, Project: project, IID: iid, URL: url,
+		}})
+	}
+	if len(hits) == 0 {
+		return nil
+	}
+	sort.SliceStable(hits, func(i, j int) bool { return hits[i].start < hits[j].start })
+	out := make([]MRRef, 0, len(hits))
+	seen := map[string]struct{}{}
+	for _, hit := range hits {
+		key := mrRefKey(hit.ref)
 		if _, ok := seen[key]; ok {
 			continue
 		}
 		seen[key] = struct{}{}
-		out = append(out, GongfengMRRef{Project: project, IID: iid, URL: GongfengMRURL(project, iid)})
+		out = append(out, hit.ref)
 	}
 	return out
+}
+
+// mrRefKey is the identity of a hosted MR. Codeup paths keep their case
+// because Codeup repository paths are resolved exactly; legacy hosts stay
+// case-insensitive.
+func mrRefKey(ref MRRef) string {
+	project := ref.Project
+	if ref.Provider != RepositoryProviderYunxiao {
+		project = strings.ToLower(project)
+	}
+	return project + "#" + strconv.Itoa(ref.IID)
 }
 
 // MRArtifactPriority ranks run artifacts when recovering an issue's own MR.

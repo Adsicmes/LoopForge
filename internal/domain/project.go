@@ -2,6 +2,7 @@ package domain
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -26,15 +27,23 @@ type Project struct {
 	RunEval             RunEvalPolicy     `json:"runEval,omitempty"`
 	// Deprecated project-level credential fields are kept only so old payloads
 	// can be decoded and scrubbed by the schema migration.
-	GitToken                     string    `json:"-"`
-	GitTokenConfigured           bool      `json:"-"`
-	CodeBuddyAPIKey              string    `json:"-"`
-	CodeBuddyAPIKeyConfigured    bool      `json:"-"`
-	CodeBuddyInternetEnvironment string    `json:"-"`
-	TAPDWorkspaceID              string    `json:"tapdWorkspaceId,omitempty"`
-	TAPDIterationID              string    `json:"tapdIterationId,omitempty"`
-	CreatedAt                    time.Time `json:"createdAt"`
-	UpdatedAt                    time.Time `json:"updatedAt"`
+	GitToken                     string `json:"-"`
+	GitTokenConfigured           bool   `json:"-"`
+	CodeBuddyAPIKey              string `json:"-"`
+	CodeBuddyAPIKeyConfigured    bool   `json:"-"`
+	CodeBuddyInternetEnvironment string `json:"-"`
+	TAPDWorkspaceID              string `json:"tapdWorkspaceId,omitempty"`
+	TAPDIterationID              string `json:"tapdIterationId,omitempty"`
+	YunxiaoSpaceID               string `json:"yunxiaoSpaceId,omitempty"`
+	YunxiaoSprintID              string `json:"yunxiaoSprintId,omitempty"`
+	// YunxiaoWorkItemTypes maps a local work item kind (Req/Bug/Task) to a
+	// Projex work item type id.
+	YunxiaoWorkItemTypes map[string]string `json:"yunxiaoWorkItemTypes,omitempty"`
+	// YunxiaoStatusMap maps an external Projex status id/name to a local one.
+	YunxiaoStatusMap         map[string]string `json:"yunxiaoStatusMap,omitempty"`
+	YunxiaoDefaultAssigneeID string            `json:"yunxiaoDefaultAssigneeId,omitempty"`
+	CreatedAt                time.Time         `json:"createdAt"`
+	UpdatedAt                time.Time         `json:"updatedAt"`
 	// ArchivedAt marks a deleted project. It is hidden from project lists and
 	// syncs but its requirements, runs and settings are kept so it can be
 	// restored; the id stays taken.
@@ -66,12 +75,33 @@ type ProjectMember struct {
 // RepositoryProviderSSH uses Git transport only; it has no hosting API adapter.
 const RepositoryProviderSSH = "ssh"
 
+// RepositoryProviderYunxiao is an Alibaba Cloud Yunxiao Codeup repository. Its
+// GongfengProjectID carries the "codeup:{org}/{path}" remote identity and the
+// numeric Codeup repository id is cached in YunxiaoRepoID.
+const RepositoryProviderYunxiao = "yunxiao"
+
+// RepositoryUsesSSH reports whether git operations for this repository use an
+// SSH key instead of an HTTPS token. Yunxiao Codeup uses SSH in the MVP so a
+// PAT never becomes a Git transport credential.
+func RepositoryUsesSSH(provider, cloneURL string) bool {
+	if provider == RepositoryProviderSSH {
+		return true
+	}
+	if provider != RepositoryProviderYunxiao {
+		return false
+	}
+	cloneURL = strings.ToLower(strings.TrimSpace(cloneURL))
+	return strings.HasPrefix(cloneURL, "git@") || strings.HasPrefix(cloneURL, "ssh://")
+}
+
 type Repository struct {
-	ID                 string    `json:"id"`
-	ProjectID          string    `json:"projectId"`
-	Provider           string    `json:"provider"`
-	Name               string    `json:"name"`
-	GongfengProjectID  string    `json:"gongfengProjectId"`
+	ID                string `json:"id"`
+	ProjectID         string `json:"projectId"`
+	Provider          string `json:"provider"`
+	Name              string `json:"name"`
+	GongfengProjectID string `json:"gongfengProjectId"`
+	// YunxiaoRepoID is the Codeup numeric repository id, resolved lazily.
+	YunxiaoRepoID      int       `json:"yunxiaoRepoId,omitempty"`
 	WebURL             string    `json:"webUrl,omitempty"`
 	CloneURL           string    `json:"cloneUrl,omitempty"`
 	DefaultBranch      string    `json:"defaultBranch"`
@@ -156,6 +186,8 @@ const GongfengRepoHost = "git.example.com"
 // GongfengRepoInfo carries the repository identity parsed out of a pasted
 // Gongfeng link, so a repository can be configured with a single URL.
 type GongfengRepoInfo struct {
+	// Provider is the hosting provider: github, gongfeng or yunxiao.
+	Provider string
 	Project  string // group/repository, i.e. the GongfengProjectID
 	Name     string // repository (last path segment)
 	WebURL   string // https://git.example.com/group/repository
@@ -229,7 +261,7 @@ func ParseGongfengRepoURL(raw string) (GongfengRepoInfo, bool) {
 	if project == "" {
 		return GongfengRepoInfo{}, false
 	}
-	info := GongfengRepoInfo{Project: project}
+	info := GongfengRepoInfo{Provider: "gongfeng", Project: project}
 	info.Name = project[strings.LastIndex(project, "/")+1:]
 	info.WebURL = "https://" + GongfengRepoHost + "/" + project
 	info.CloneURL = info.WebURL + ".git"
@@ -279,6 +311,190 @@ func isAllDigits(s string) bool {
 		}
 	}
 	return true
+}
+
+// CodeupHost is the public Alibaba Cloud Codeup hosting host. Region
+// deployments are served from "<org>.devops.aliyuncs.com" instead.
+const CodeupHost = "codeup.aliyun.com"
+
+// codeupRepoSubpages are Codeup URL suffixes that point at a page inside a
+// repository (merge request, file tree, commits, settings, ...). Everything
+// before the first marker is the repository path.
+var codeupRepoSubpages = []string{
+	"/-/", "/change/", "/tree/", "/blob/", "/commit/", "/commits/",
+	"/merge_requests/", "/issues/", "/pulls/", "/pipelines/", "/settings",
+}
+
+// ParseYunxiaoRepoURL parses an Alibaba Cloud Yunxiao Codeup repository
+// reference into the project identity plus normalized URLs. Accepted inputs:
+//   - https://codeup.aliyun.com/org/repo (with .git, subpages, nested groups)
+//   - https://<org>.devops.aliyuncs.com/org/repo (Region station)
+//   - git@codeup.aliyun.com:org/repo.git
+//   - ssh://git@codeup.aliyun.com[:22]/org/repo.git
+//   - codeup:org/repo (explicit prefix, no host)
+//
+// URLs carrying account credentials, path traversal, empty segments or a
+// non-Codeup host are rejected. SSH inputs keep an SSH CloneURL; everything
+// else gets an HTTPS one.
+func ParseYunxiaoRepoURL(raw string) (GongfengRepoInfo, bool) {
+	s := strings.Trim(strings.TrimSpace(raw), `"'`)
+	if len(s) >= 10 && strings.EqualFold(s[:10], "git clone ") {
+		s = strings.Trim(strings.TrimSpace(s[10:]), `"'`)
+		if i := strings.IndexAny(s, " \t"); i >= 0 {
+			s = s[:i]
+		}
+	}
+	if s == "" || strings.ContainsAny(s, " \t\r\n\"'<>()") {
+		return GongfengRepoInfo{}, false
+	}
+	host, path, sshClone, ok := parseYunxiaoLocation(s)
+	if !ok {
+		return GongfengRepoInfo{}, false
+	}
+	project := normalizeYunxiaoRepoPath(path)
+	if project == "" {
+		return GongfengRepoInfo{}, false
+	}
+	base := "https://" + host
+	info := GongfengRepoInfo{
+		Provider: RepositoryProviderYunxiao,
+		Project:  "codeup:" + project,
+		Name:     project[strings.LastIndex(project, "/")+1:],
+		WebURL:   base + "/" + project,
+		CloneURL: base + "/" + project + ".git",
+	}
+	if sshClone {
+		info.CloneURL = "git@" + host + ":" + project + ".git"
+	}
+	return info, true
+}
+
+// YunxiaoSSHCloneURL derives the SSH clone URL of a Codeup repository. The
+// MVP uses SSH for Git transport and keeps the PAT for OpenAPI only, so a
+// pasted web URL is stored with this derived clone URL.
+func YunxiaoSSHCloneURL(project, webURL string) string {
+	path := strings.TrimPrefix(strings.TrimSpace(project), "codeup:")
+	path = strings.Trim(path, "/")
+	if path == "" {
+		return ""
+	}
+	host := CodeupHost
+	if u, err := url.Parse(strings.TrimSpace(webURL)); err == nil && u.Hostname() != "" {
+		host = strings.ToLower(u.Hostname())
+	}
+	return "git@" + host + ":" + path + ".git"
+}
+
+// IsYunxiaoRemote reports whether project is a Codeup remote identity
+// ("codeup:{org}/{path}").
+func IsYunxiaoRemote(project string) bool {
+	return strings.HasPrefix(strings.TrimSpace(project), "codeup:")
+}
+
+// parseYunxiaoLocation splits a Codeup reference into its host and repository
+// path. Bare "codeup:" identities use the public Codeup host.
+func parseYunxiaoLocation(s string) (host, path string, sshClone, ok bool) {
+	lower := strings.ToLower(s)
+	if strings.HasPrefix(lower, "codeup:") {
+		return CodeupHost, s[len("codeup:"):], false, true
+	}
+	if strings.HasPrefix(lower, "ssh://") {
+		u, err := url.Parse(s)
+		if err != nil || u.Scheme != "ssh" || u.Hostname() == "" {
+			return "", "", false, false
+		}
+		if u.User != nil {
+			if _, hasPassword := u.User.Password(); hasPassword {
+				return "", "", false, false
+			}
+			if name := u.User.Username(); name != "" && !strings.EqualFold(name, "git") {
+				return "", "", false, false
+			}
+		}
+		if !isYunxiaoHost(u.Hostname()) {
+			return "", "", false, false
+		}
+		return strings.ToLower(u.Hostname()), u.Path, true, true
+	}
+	if strings.HasPrefix(lower, "git@") {
+		rest := s[len("git@"):]
+		i := strings.IndexAny(rest, ":/")
+		if i <= 0 {
+			return "", "", false, false
+		}
+		h := rest[:i]
+		if !isYunxiaoHost(h) {
+			return "", "", false, false
+		}
+		p := strings.TrimPrefix(rest[i+1:], "/")
+		// git@host:22/org/repo.git carries an explicit SSH port.
+		if j := strings.Index(p, "/"); j > 0 && isAllDigits(p[:j]) {
+			p = p[j+1:]
+		}
+		return strings.ToLower(h), p, true, true
+	}
+	if !strings.Contains(s, "://") {
+		// Allow a bare "host/path" reference; bare project paths without a
+		// known Codeup host stay a Gongfeng-only shape.
+		if !strings.Contains(s, "/") {
+			return "", "", false, false
+		}
+		s = "https://" + s
+	}
+	u, err := url.Parse(s)
+	if err != nil || u.Hostname() == "" || (u.Scheme != "http" && u.Scheme != "https") {
+		return "", "", false, false
+	}
+	if u.User != nil {
+		return "", "", false, false
+	}
+	if !isYunxiaoHost(u.Hostname()) {
+		return "", "", false, false
+	}
+	return strings.ToLower(u.Hostname()), u.Path, false, true
+}
+
+// IsYunxiaoHost reports whether host is the public Codeup host or a Region
+// station host. HTTP handlers use it to decide whether an SSH address belongs
+// to a Codeup repository instead of a generic SSH remote.
+func IsYunxiaoHost(host string) bool { return isYunxiaoHost(host) }
+
+func isYunxiaoHost(host string) bool {
+	h := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(host), "."))
+	return h == CodeupHost || strings.HasSuffix(h, ".devops.aliyuncs.com")
+}
+
+// normalizeYunxiaoRepoPath strips clone suffixes and repository subpage
+// markers from a Codeup path and validates the remaining "org/repo" shape.
+func normalizeYunxiaoRepoPath(path string) string {
+	p := strings.TrimPrefix(strings.TrimSpace(path), "/")
+	if p == "" || strings.Contains(p, "..") {
+		return ""
+	}
+	cut := -1
+	for _, marker := range codeupRepoSubpages {
+		if i := strings.Index(p, marker); i >= 0 && (cut < 0 || i < cut) {
+			cut = i
+		}
+	}
+	if cut >= 0 {
+		p = p[:cut]
+	}
+	p = strings.Trim(p, "/")
+	if strings.HasSuffix(strings.ToLower(p), ".git") {
+		p = p[:len(p)-4]
+	}
+	p = strings.Trim(p, "/")
+	if p == "" || !strings.Contains(p, "/") {
+		// must look like org/repository (at least two segments)
+		return ""
+	}
+	for _, seg := range strings.Split(p, "/") {
+		if seg == "" || seg == "." || seg == ".." || strings.ContainsAny(seg, " \t\\?#%\"'<>()") {
+			return ""
+		}
+	}
+	return p
 }
 
 // IsSafeGongfengProjectID reports whether s is a safe, single-segment legacy

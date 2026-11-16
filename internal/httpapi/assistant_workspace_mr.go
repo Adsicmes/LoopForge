@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
-	"slices"
 	"strings"
 	"time"
 
@@ -127,8 +126,22 @@ func (h *agentToolGateway) workspaceSubmitMR(ctx context.Context, s *AgentToolSe
 	}
 	gitToken := strings.TrimSpace(h.repo.GitCredential(ctx, s.User.ID))
 	_, apiToken := gitwork.SplitToken(gitToken)
-	if apiToken == "" && !slices.ContainsFunc(run.RepositoryContexts(), func(rc domain.RepositoryContext) bool { return rc.Provider == domain.RepositoryProviderSSH }) {
+	yunxiaoToken := strings.TrimSpace(requester.YunxiaoToken)
+	var needsGitToken, needsYunxiao bool
+	for _, rc := range run.RepositoryContexts() {
+		if rc.Provider == domain.RepositoryProviderYunxiao {
+			needsYunxiao = true
+			continue
+		}
+		if !domain.RepositoryUsesSSH(rc.Provider, rc.CloneURL) {
+			needsGitToken = true
+		}
+	}
+	if needsGitToken && apiToken == "" {
 		return "", fmt.Errorf("你还没有配置 Git Token，无法推送和发起 PR。请到「个人配置 → 个人凭证」配置：打开 https://github.com/settings/tokens 新建令牌，为目标仓库授予 Contents 和 Pull requests 的读写权限，复制后粘贴并点校验")
+	}
+	if needsYunxiao && yunxiaoToken == "" {
+		return "", fmt.Errorf("你还没有配置云效访问令牌，无法推送和发起云效 MR。请到「个人配置 → 云效访问令牌」填写有代码管理读写权限的 PAT")
 	}
 	if h.engine == nil {
 		return "", fmt.Errorf("执行引擎不可用")
@@ -195,6 +208,21 @@ func (h *agentToolGateway) workspaceSubmitMR(ctx context.Context, s *AgentToolSe
 		}
 		if rc.Provider == domain.RepositoryProviderSSH {
 			result.PushOnly, result.RepositoryURL = true, rc.WebURL
+			results = append(results, result)
+			continue
+		}
+		if rc.Provider == domain.RepositoryProviderYunxiao {
+			result.CreateURL = strings.TrimSpace(rc.WebURL)
+			mr, existing, err := h.createYunxiaoMR(ctx, yunxiaoToken, rc, result.SourceBranch, result.TargetBranch, title, body)
+			if err != nil {
+				result.Error = redactAgentToolResult(err.Error(), requester)
+			} else {
+				result.MRIID, result.Existing = int64(mr.LocalID), existing
+				result.MRURL = strings.TrimSpace(mr.WebURL)
+				if result.MRURL == "" {
+					result.MRURL = domain.MRURL("yunxiao", rc.GongfengProjectID, mr.LocalID)
+				}
+			}
 			results = append(results, result)
 			continue
 		}

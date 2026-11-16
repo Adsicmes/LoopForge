@@ -310,7 +310,7 @@ func (h *streamHandlers) prepareClarifyRepo(ctx context.Context, repo domain.Rep
 	// Resolve the configured default before choosing a cache. Changing a
 	// repository's main branch must not reuse its previous branch's checkout.
 	cacheKey := repo.ID + "\x00" + resolvedBranch
-	ssh := repo.Provider == domain.RepositoryProviderSSH
+	ssh := domain.RepositoryUsesSSH(repo.Provider, repo.CloneURL)
 	if ssh {
 		keys := h.repo.GitSSHKeysForRemotes(responsibleUserID, []string{repo.CloneURL})
 		key := keys[repo.CloneURL]

@@ -84,6 +84,21 @@ func (h *projectsHandlers) projects(c *gin.Context) {
 			if v.SOPPlaybooks == nil {
 				v.SOPPlaybooks = existing.SOPPlaybooks
 			}
+			if strings.TrimSpace(v.YunxiaoSpaceID) == "" {
+				v.YunxiaoSpaceID = existing.YunxiaoSpaceID
+			}
+			if strings.TrimSpace(v.YunxiaoSprintID) == "" {
+				v.YunxiaoSprintID = existing.YunxiaoSprintID
+			}
+			if v.YunxiaoWorkItemTypes == nil {
+				v.YunxiaoWorkItemTypes = existing.YunxiaoWorkItemTypes
+			}
+			if v.YunxiaoStatusMap == nil {
+				v.YunxiaoStatusMap = existing.YunxiaoStatusMap
+			}
+			if strings.TrimSpace(v.YunxiaoDefaultAssigneeID) == "" {
+				v.YunxiaoDefaultAssigneeID = existing.YunxiaoDefaultAssigneeID
+			}
 		}
 		if err := h.applyProjectPlaybook(&v); err != nil {
 			c.JSON(400, map[string]string{"error": err.Error()})

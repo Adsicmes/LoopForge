@@ -100,7 +100,7 @@ func promptRepositoryLine(run domain.Run) string {
 		return "未绑定代码仓库"
 	}
 	identity := run.Repository.GongfengProjectID
-	if run.Repository.Provider == domain.RepositoryProviderSSH {
+	if domain.RepositoryUsesSSH(run.Repository.Provider, run.Repository.CloneURL) {
 		identity = "Git SSH"
 	}
 	return fmt.Sprintf("%s (%s), 最新远端基线 %s, 本次工作分支 %s", run.Repository.Name, identity, run.Repository.BaseBranch, run.Repository.WorkBranch)
@@ -124,7 +124,7 @@ func upstreamNodeOutputs(wf domain.WorkflowDefinition, node domain.WorkflowNode,
 func sshDeliveryHint(run domain.Run) string {
 	var sshRepos []string
 	for _, repository := range run.RepositoryContexts() {
-		if repository.Provider == domain.RepositoryProviderSSH {
+		if domain.RepositoryUsesSSH(repository.Provider, repository.CloneURL) {
 			sshRepos = append(sshRepos, repository.Name)
 		}
 	}
@@ -156,7 +156,7 @@ func hostedMRBlurb(st *repo.Store, run domain.Run) string {
 	}
 	if len(continued) > 0 {
 		hint := "用户要求直接在指定的已有分支上继续处理，不新建或改名工作分支。先查找来源分支和目标主分支均匹配的已有 MR 并更新；没有匹配 MR 时才创建。\n" + strings.Join(continued, "\n")
-		if art, ok := latestNamedArtifact(run, "mr", "mr-body"); ok && strings.Contains(art.Content, "merge_requests") {
+		if art, ok := latestNamedArtifact(run, "mr", "mr-body"); ok && len(domain.ParseMRs(art.Content)) > 0 {
 			hint += "\n已有 MR 信息（核对来源与目标分支后使用）：\n" + art.Content
 		}
 		return hint
@@ -169,7 +169,7 @@ func hostedMRBlurb(st *repo.Store, run domain.Run) string {
 		}
 		return content
 	}
-	if art, ok := latestNamedArtifact(run, "mr", "mr-body"); ok && strings.Contains(art.Content, "merge_requests") {
+	if art, ok := latestNamedArtifact(run, "mr", "mr-body"); ok && len(domain.ParseMRs(art.Content)) > 0 {
 		return "已有本轮 MR，在本轮工作分支上更新，禁止另开分支：\n" + clip(art.Content) + "\n" + searchHint
 	}
 	_ = st

@@ -276,6 +276,8 @@ func newWithNotifications(s *repo.Store, e *engine.Engine, syncSvc *tracker.Serv
 	// 工蜂 Git Token 校验：只允许当前登录用户校验自己的令牌。
 	g.GET("/api/users/:id/git-token/verify", api.users.verifyGitToken)
 	g.POST("/api/users/:id/git-token/verify", api.users.verifyGitToken)
+	g.GET("/api/users/:id/yunxiao-token/verify", api.users.verifyYunxiaoToken)
+	g.POST("/api/users/:id/yunxiao-token/verify", api.users.verifyYunxiaoToken)
 	g.GET("/api/users/:id/git-ssh-keys", api.users.gitSSHKeys)
 	g.PUT("/api/users/:id/git-ssh-keys", api.users.gitSSHKeys)
 	g.DELETE("/api/users/:id/git-ssh-keys/:keyID", api.users.gitSSHKeys)
@@ -357,6 +359,7 @@ func newWithNotifications(s *repo.Store, e *engine.Engine, syncSvc *tracker.Serv
 	g.PUT("/api/repositories", api.catalog.repositories)
 	g.DELETE("/api/repositories", api.catalog.repositories)
 	g.GET("/api/repositories/:id", api.catalog.repository)
+	g.POST("/api/repositories/:id/yunxiao/verify", api.catalog.verifyYunxiaoRepository)
 	g.GET("/api/issues", api.issues.issues)
 	g.PUT("/api/issues", api.issues.issues)
 	g.POST("/api/issues", api.issues.issues)
@@ -689,11 +692,17 @@ func (s *Server) health(c *gin.Context) {
 }
 
 func (s *Server) capabilities(c *gin.Context) {
+	cfg := s.repo.SyncConfig()
 	c.JSON(http.StatusOK, map[string]any{
 		"operations": application.PublicOperations(),
 		"mcp": map[string]any{
 			"streamableHttp": "/mcp",
 			"stdioCommand":   "agentflow-mcp",
+		},
+		"yunxiao": map[string]any{
+			"enabled":        strings.TrimSpace(cfg.YunxiaoAPIBase) != "" && strings.TrimSpace(cfg.YunxiaoOrganizationID) != "",
+			"apiBase":        strings.TrimSpace(cfg.YunxiaoAPIBase),
+			"organizationId": strings.TrimSpace(cfg.YunxiaoOrganizationID),
 		},
 	})
 }
@@ -760,9 +769,12 @@ func (s *Server) bootstrap(c *gin.Context) {
 		"agents": catalogAgents(agents), "rules": rules, "skills": skills, "mcpServers": mcpServers,
 		"executors": executors, "dockerfiles": dockerfiles, "environments": environments, "sandboxes": sandboxes,
 		"workflows": workflows, "syncConfig": syncConfig, "scheduleJobs": scheduleJobs, "schedulerEnabled": schedulerEnabled(),
-		"users":        domain.PublicUsers(users),
-		"storage":      s.repo.StorageInfo(),
-		"capabilities": map[string]bool{"docker": runtime.DockerReady()},
+		"users":   domain.PublicUsers(users),
+		"storage": s.repo.StorageInfo(),
+		"capabilities": map[string]bool{
+			"docker":  runtime.DockerReady(),
+			"yunxiao": strings.TrimSpace(syncConfig.YunxiaoAPIBase) != "" && strings.TrimSpace(syncConfig.YunxiaoOrganizationID) != "",
+		},
 		// Set when users without their own CodeBuddy API Key can still chat
 		// and run SOPs on the platform's shared key, limited to these models
 		// (sponsoredModel is the default).

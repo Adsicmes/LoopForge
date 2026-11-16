@@ -1,6 +1,7 @@
 package tracker
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -26,6 +27,7 @@ type Service struct {
 	gfSource              string
 	tapdSource            string
 	mrCache               sync.Map
+	yunxiaoRepoIDs        sync.Map
 	landedOnDefault       sync.Map
 	logs                  []domain.SyncLog
 	logsMu                sync.Mutex
@@ -178,6 +180,9 @@ func (s *Service) trackerClientForWriteBack(kind, projectID string, issue domain
 }
 
 func (s *Service) gongfengClientForRemoteProject(remoteProject string) (*MCPClient, string, error) {
+	if domain.IsYunxiaoRemote(remoteProject) {
+		return nil, "none", fmt.Errorf("云效仓库 %s 不能使用工蜂客户端", remoteProject)
+	}
 	if s.projectAuth != nil {
 		remoteProject = strings.TrimSpace(remoteProject)
 		for _, repo := range s.projectAuth.Repositories() {
@@ -343,6 +348,16 @@ func (s *Service) PullAll(store IssueStoreAdapter) error {
 	}
 	syncCount += n
 
+	n, err = s.pullAllYunxiao(store)
+	if err != nil {
+		if lastErr == nil {
+			lastErr = err
+		} else {
+			lastErr = fmt.Errorf("%v；%v", lastErr, err)
+		}
+	}
+	syncCount += n
+
 	pruneDuplicateExternalIssues(store)
 	// Delivery transitions belong to the independent MR state sync. A tracker
 	// pull must not change local lifecycle via post-pull reconciliation either.
@@ -408,6 +423,18 @@ func (s *Service) PullScheduleJob(store IssueStoreAdapter, job domain.ScheduleJo
 			return 0, nil, fmt.Errorf("schedule job needs TAPD workspace and iteration")
 		}
 		return s.pullScheduledTAPDPool(store, job)
+	case "yunxiao":
+		for _, project := range store.Projects() {
+			if job.ProjectID != "" && project.ID != job.ProjectID {
+				continue
+			}
+			if strings.TrimSpace(project.YunxiaoSpaceID) == "" {
+				continue
+			}
+			n, err := s.pullYunxiaoWorkitems(store, project)
+			return n, nil, err
+		}
+		return 0, nil, fmt.Errorf("定时任务需要项目配置云效空间 ID")
 	default:
 		return 0, nil, fmt.Errorf("unknown schedule source %q", job.Source)
 	}
@@ -680,6 +707,17 @@ func (s *Service) WriteBackClarification(store IssueStoreAdapter, issue domain.I
 				"description":  body,
 			},
 		})
+		return err
+	case "yunxiao":
+		id := strings.TrimSpace(issue.ExternalRef.ExternalID)
+		if id == "" {
+			return fmt.Errorf("yunxiao external work item id is missing")
+		}
+		client, _, _, err := s.yunxiaoClientForProjectOrOwner(issue.ProjectID, issue.AssigneeUserID)
+		if err != nil {
+			return err
+		}
+		_, err = client.CreateWorkitemComment(context.Background(), id, body)
 		return err
 	default:
 		return nil
@@ -1941,6 +1979,16 @@ func externalIssueKey(issue domain.Issue) string {
 			return ""
 		}
 		return fmt.Sprintf("gongfeng:%s:%d", scope, iid)
+	}
+	if issue.Source == "yunxiao" {
+		if issue.ExternalRef == nil {
+			return ""
+		}
+		id := strings.TrimSpace(issue.ExternalRef.ExternalID)
+		if id == "" {
+			return ""
+		}
+		return fmt.Sprintf("yunxiao:%s:%s", strings.TrimSpace(issue.ProjectID), id)
 	}
 	if issue.Source == "tapd" {
 		id := tapdExternalID(issue)

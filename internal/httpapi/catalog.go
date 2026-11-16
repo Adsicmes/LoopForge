@@ -122,11 +122,15 @@ func (h *catalogHandlers) repositories(c *gin.Context) {
 	legacySSH := false
 	if v.Provider != domain.RepositoryProviderSSH {
 		if remote, err := gitwork.ParseSSHRemote(sshReference); err == nil {
-			legacySSH = remote.Port == "22" && (remote.Host == domain.GongfengRepoHost || remote.Host == "github.com")
+			legacySSH = remote.Port == "22" && (remote.Host == domain.GongfengRepoHost || remote.Host == "github.com" || domain.IsYunxiaoHost(remote.Host))
 		}
 	}
-	githubShorthand := primary != "" && strings.HasPrefix(strings.TrimPrefix(primary, "git clone "), "github:")
-	if v.Provider == domain.RepositoryProviderSSH || (gitwork.IsSSHReference(sshReference) && !legacySSH && !githubShorthand) {
+	hostedShorthand := false
+	if primary != "" {
+		shorthand := strings.TrimPrefix(primary, "git clone ")
+		hostedShorthand = strings.HasPrefix(shorthand, "github:") || strings.HasPrefix(shorthand, "codeup:")
+	}
+	if v.Provider == domain.RepositoryProviderSSH || (gitwork.IsSSHReference(sshReference) && !legacySSH && !hostedShorthand) {
 		remote, err := gitwork.ParseSSHRemote(sshReference)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -183,6 +187,9 @@ func (h *catalogHandlers) repositories(c *gin.Context) {
 		v.GongfengProjectID = info.Project
 		v.WebURL = info.WebURL
 		v.CloneURL = info.CloneURL
+		if strings.TrimSpace(info.Provider) != "" {
+			v.Provider = info.Provider
+		}
 	}
 	// A link-shaped project id that fails to parse (github.com, malformed URL)
 	// is rejected loudly: storing it as a project path would silently break
@@ -208,6 +215,9 @@ func (h *catalogHandlers) repositories(c *gin.Context) {
 		if v.Name == "" {
 			v.Name = parsed.Name
 		}
+		if strings.TrimSpace(v.Provider) == "" && strings.TrimSpace(parsed.Provider) != "" {
+			v.Provider = parsed.Provider
+		}
 	}
 	if v.GongfengProjectID != "" {
 		if v.WebURL == "" {
@@ -230,11 +240,36 @@ func (h *catalogHandlers) repositories(c *gin.Context) {
 			v.DefaultBranch = "main"
 		}
 	}
+	if strings.HasPrefix(v.GongfengProjectID, "codeup:") {
+		v.Provider = domain.RepositoryProviderYunxiao
+		if v.DefaultBranch == "" {
+			v.DefaultBranch = "master"
+		}
+	}
 	if v.Provider == "" {
 		v.Provider = "gongfeng"
 	}
-	if v.Provider != "gongfeng" && v.Provider != "github" {
-		c.JSON(400, map[string]string{"error": "provider must be github or gongfeng"})
+	if v.Provider != "gongfeng" && v.Provider != "github" && v.Provider != domain.RepositoryProviderYunxiao {
+		c.JSON(400, map[string]string{"error": "provider must be github, gongfeng or yunxiao"})
+		return
+	}
+	if v.Provider == domain.RepositoryProviderYunxiao {
+		if !strings.HasPrefix(v.GongfengProjectID, "codeup:") {
+			c.JSON(400, map[string]string{"error": "云效仓库标识必须以 codeup: 开头"})
+			return
+		}
+		if !gitwork.IsSSHReference(v.CloneURL) {
+			// The MVP keeps PAT out of Git transport: derive the SSH clone URL
+			// instead of accepting an HTTPS remote that would receive a Git token.
+			v.CloneURL = domain.YunxiaoSSHCloneURL(v.GongfengProjectID, v.WebURL)
+			if !gitwork.IsSSHReference(v.CloneURL) {
+				c.JSON(400, map[string]string{"error": "云效 Codeup 仓库需要有效的 SSH 克隆地址"})
+				return
+			}
+		}
+	}
+	if v.Provider == "gongfeng" && strings.HasPrefix(v.GongfengProjectID, "codeup:") {
+		c.JSON(400, map[string]string{"error": "云效仓库不能保存为工蜂仓库"})
 		return
 	}
 	if v.DefaultBranch == "" {

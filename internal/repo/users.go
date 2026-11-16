@@ -24,6 +24,8 @@ type userWithConfig struct {
 	DeptName                     string     `gorm:"column:dept_name"`
 	PlatformRole                 string     `gorm:"column:platform_role"`
 	GitToken                     *string    `gorm:"column:git_token"`
+	YunxiaoToken                 *string    `gorm:"column:yunxiao_token"`
+	YunxiaoUserID                *string    `gorm:"column:yunxiao_user_id"`
 	GitSSHKeyConfigured          bool       `gorm:"column:git_ssh_key_configured"`
 	GongfengRefreshToken         *string    `gorm:"column:gongfeng_refresh_token"`
 	GongfengTokenExpiresAt       *time.Time `gorm:"column:gongfeng_token_expires_at"`
@@ -42,7 +44,8 @@ type userWithConfig struct {
 
 const userSelectColumns = `u.id, u.staff_id, u.login_name, u.chinese_name, u.dept_id, u.dept_name,
 	COALESCE(u.platform_role, '') AS platform_role,
-	c.git_token, EXISTS (SELECT 1 FROM user_git_ssh_keys k WHERE k.user_id = u.id) AS git_ssh_key_configured,
+	c.git_token, c.yunxiao_token, c.yunxiao_user_id,
+	EXISTS (SELECT 1 FROM user_git_ssh_keys k WHERE k.user_id = u.id) AS git_ssh_key_configured,
 	c.gongfeng_refresh_token, c.gongfeng_token_expires_at, c.codebuddy_api_key, COALESCE(c.codebuddy_internet_environment, '') AS codebuddy_internet_environment,
 	c.codex_api_key, c.codex_base_url, c.codex_models, c.claude_code_api_key, c.claude_code_base_url, c.claude_code_models,
 	c.agent_cli_credentials,
@@ -57,6 +60,12 @@ func (r userWithConfig) toDomain() domain.User {
 	}
 	if r.GitToken != nil {
 		u.GitToken = *r.GitToken
+	}
+	if r.YunxiaoToken != nil {
+		u.YunxiaoToken = *r.YunxiaoToken
+	}
+	if r.YunxiaoUserID != nil {
+		u.YunxiaoUserID = *r.YunxiaoUserID
 	}
 	if r.GongfengRefreshToken != nil {
 		u.GongfengRefreshToken = *r.GongfengRefreshToken
@@ -154,6 +163,8 @@ func (r *UsersRepo) PutUser(v domain.User) error {
 		// Authentication refreshes identity fields only. Credentials are managed
 		// through UpdateUserCredentials and must survive every login refresh.
 		v.GitToken = old.GitToken
+		v.YunxiaoToken = old.YunxiaoToken
+		v.YunxiaoUserID = old.YunxiaoUserID
 		v.GongfengRefreshToken = old.GongfengRefreshToken
 		v.GongfengTokenExpiresAt = old.GongfengTokenExpiresAt
 		v.CodexAPIKey, v.CodexBaseURL, v.CodexModels = old.CodexAPIKey, old.CodexBaseURL, old.CodexModels
@@ -225,6 +236,7 @@ func (r *UsersRepo) writeUser(v domain.User) (domain.User, error) {
 
 func userHasConfig(user domain.User) bool {
 	return user.GitToken != "" ||
+		user.YunxiaoToken != "" ||
 		user.GongfengRefreshToken != "" ||
 		user.CodeBuddyAPIKey != "" ||
 		user.CodeBuddyInternetEnvironment != "" ||
@@ -240,6 +252,9 @@ func userHasConfig(user domain.User) bool {
 type UserCredentialUpdate struct {
 	GitToken                     string             `json:"gitToken"`
 	GitTokenClear                bool               `json:"gitTokenClear"`
+	YunxiaoToken                 string             `json:"yunxiaoToken"`
+	YunxiaoTokenClear            bool               `json:"yunxiaoTokenClear"`
+	YunxiaoUserID                *string            `json:"yunxiaoUserId"`
 	CodeBuddyAPIKey              string             `json:"codeBuddyApiKey"`
 	CodeBuddyAPIKeyClear         bool               `json:"codeBuddyApiKeyClear"`
 	CodeBuddyInternetEnvironment *string            `json:"codeBuddyInternetEnvironment"`
@@ -279,6 +294,14 @@ func (r *UsersRepo) UpdateUserCredentials(id int64, update UserCredentialUpdate)
 		// refresh token in place would overwrite the paste on the next use.
 		user.GongfengRefreshToken = ""
 		user.GongfengTokenExpiresAt = time.Time{}
+	}
+	if update.YunxiaoTokenClear {
+		user.YunxiaoToken = ""
+	} else if value := strings.TrimSpace(update.YunxiaoToken); value != "" {
+		user.YunxiaoToken = value
+	}
+	if update.YunxiaoUserID != nil {
+		user.YunxiaoUserID = strings.TrimSpace(*update.YunxiaoUserID)
 	}
 	if update.CodeBuddyAPIKeyClear {
 		user.CodeBuddyAPIKey = ""
@@ -349,6 +372,8 @@ func (r *UsersRepo) writeUserConfig(v domain.User) error {
 	values := map[string]any{
 		"user_id":                v.ID,
 		"git_token":              nullableString(v.GitToken),
+		"yunxiao_token":          nullableString(v.YunxiaoToken),
+		"yunxiao_user_id":        nullableString(v.YunxiaoUserID),
 		"gongfeng_refresh_token": nullableString(v.GongfengRefreshToken), "gongfeng_token_expires_at": timePtr(v.GongfengTokenExpiresAt),
 		"codebuddy_api_key":              nullableString(v.CodeBuddyAPIKey),
 		"codebuddy_internet_environment": v.CodeBuddyInternetEnvironment,
