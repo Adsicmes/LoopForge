@@ -1358,7 +1358,6 @@ async function renderPersonalSettings(){
     toast('工蜂授权已保存，正在校验授权有效性…');
   }
   if(credentialWizard)closeCredentialWizard(true);
-  await refreshCodexSubscriptionStatus();
   host.innerHTML=`<section class="credential-account credential-enter" style="--i:0"><span class="credential-avatar">${userAvatarHTML(user, 150)}</span><div><b>${escapeHTML(userDisplay(user))}</b><small>凭证按用户隔离，仅在你负责的任务运行时注入。</small></div><span class="credential-account-note">${credentialGlyph('lock',14)}任务级注入，不写入 Agent 资产</span></section><section class="credential-panel credential-enter is-entering" id="credentialPanel" style="--i:1"></section>`;
   const panel=host.querySelector('#credentialPanel');
   bindCredentialPanel(panel);
@@ -1371,6 +1370,7 @@ async function renderPersonalSettings(){
     const cached=gitTokenVerifyFor(user);
     if(!cached||(cached.busy&&!state.gitTokenVerifyInFlight)){state.gitTokenVerifyInFlight=true;refreshGitTokenStatus().finally(()=>{state.gitTokenVerifyInFlight=false})}
   }
+  await refreshCodexSubscriptionStatus();
 }
 // 谁能改通用模板是平台级权限，不属于任何一个项目，也不属于个人凭据；
 // 只有平台管理员能看到「平台管理」入口。
