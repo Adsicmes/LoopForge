@@ -30,7 +30,7 @@ SET payload = CAST(
     REPLACE(
       JSON_UNQUOTE(JSON_EXTRACT(payload, '$.content')),
       '@tencent-ai/codebuddy-code',
-      '@tencent-ai/codebuddy-code @opencode/cli@2.3.0'
+      CONCAT('@tencent-ai/codebuddy-code @opencode/cli@2.3.0', CHAR(10), 'RUN node /usr/local/lib/node_modules/@opencode/cli/postinstall.mjs && opencode --version')
     )
   ) AS JSON
 )

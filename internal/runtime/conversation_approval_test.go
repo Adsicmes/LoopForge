@@ -76,6 +76,16 @@ func TestConversationSupportsEveryRegisteredCLI(t *testing.T) {
 	}
 }
 
+func TestOpenCodeConversationSetupRunsPostInstall(t *testing.T) {
+	setup, err := conversationCLISetup(AgentCLIOpenCode, "opencode")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(setup, "@opencode/cli@") || !strings.Contains(setup, "postinstall.mjs") {
+		t.Fatalf("OpenCode setup must install v2 and run its postinstall: %s", setup)
+	}
+}
+
 func TestZCodeConversationSetupRequiresOfficialPreinstallation(t *testing.T) {
 	setup, err := conversationCLISetup(AgentCLIZCode, conversationBinary(AgentCLIZCode))
 	if err != nil || strings.Contains(setup, "npm install") || !strings.Contains(setup, "预装官方 ZCode CLI") {

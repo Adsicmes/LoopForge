@@ -876,7 +876,7 @@ func isolatedRuntimeImage(dockerfile domain.DockerfileDefinition) string {
 
 // IsolatedDockerfile matches the public "generic-backend" environment so both
 // share one cached image.
-const IsolatedDockerfile = "FROM node:22-bookworm\nRUN apt-get update && apt-get install -y --no-install-recommends git openssh-client python3 ripgrep ca-certificates curl && rm -rf /var/lib/apt/lists/*\nRUN npm install -g @openai/codex @anthropic-ai/claude-code @tencent-ai/codebuddy-code\nWORKDIR /workspace\n"
+const IsolatedDockerfile = "FROM node:22-bookworm\nRUN apt-get update && apt-get install -y --no-install-recommends git openssh-client python3 ripgrep ca-certificates curl && rm -rf /var/lib/apt/lists/*\nRUN npm install -g @openai/codex @anthropic-ai/claude-code @tencent-ai/codebuddy-code @opencode/cli@2.3.0 && node /usr/local/lib/node_modules/@opencode/cli/postinstall.mjs && opencode --version\nWORKDIR /workspace\n"
 
 // PrebuildIsolatedImage warms the shared sandbox image in the background so
 // the first SOP on a fresh container install does not wait for the build.

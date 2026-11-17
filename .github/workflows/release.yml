@@ -111,6 +111,14 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Check the bundled runtime CLIs
+        env:
+          IMAGE: ${{ steps.release.outputs.image }}
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          docker pull "${IMAGE}:${VERSION}"
+          bash scripts/test-runtime-image.sh "${IMAGE}:${VERSION}"
+
       - name: Smoke-test the published image by digest
         env:
           LOOPFORGE_IMAGE: ${{ steps.release.outputs.image }}@${{ steps.push.outputs.digest }}

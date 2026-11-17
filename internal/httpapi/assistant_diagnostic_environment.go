@@ -52,7 +52,7 @@ func assistantDiagnosticCLIVersion(engine, bin string) (version, source string) 
 			}
 		}
 	}
-	packages := map[string]string{"codex": "@openai/codex", "codebuddy": "@tencent-ai/codebuddy-code", "claude-code": "@anthropic-ai/claude-code"}
+	packages := map[string]string{"codex": "@openai/codex", "codebuddy": "@tencent-ai/codebuddy-code", "claude-code": "@anthropic-ai/claude-code", "opencode": "@opencode/cli"}
 	resolved, err := filepath.EvalSymlinks(bin)
 	if err == nil && packages[engine] != "" {
 		for dir, depth := filepath.Dir(resolved), 0; depth < 5; dir, depth = filepath.Dir(dir), depth+1 {

@@ -7,7 +7,7 @@ Platform releases use `vX.Y.Z` tags and publish this fork's image as `ghcr.io/ad
 This is a prerelease for testing the Codex subscription switch and the OpenCode 2 default install. The `latest` and `0.3` image tags stay on 0.3.8; install it with `git clone --branch v0.3.10-rc.2`.
 
 - **Codex 订阅开关立即生效**：管理员开启 Codex 订阅后，个人配置不再显示“平台管理员尚未开启 Codex 订阅”。此前前端读取的是从未写入的 `state.data.codexSubscription`；现在打开个人配置、展开订阅行或点击连接都会重新读取个人订阅状态，管理员的平台开关也会同步到当前页面。
-- **OpenCode 2 默认安装**：平台镜像、内置 `generic-backend` 沙箱、执行机器绑定脚本和 `scripts/dev.sh` 都默认安装 `@opencode/cli@2.3.0`。npm 12 默认阻止 lifecycle scripts 时，平台会显式执行包内 postinstall，避免留下退出码 1 的 `opencode` stub；CI 的镜像检查、安装验收和文档同步更新。
+- **OpenCode 2 默认安装**：平台镜像、内置 `generic-backend` 沙箱、执行机器绑定脚本和 `scripts/dev.sh` 都默认安装 `@opencode/cli@2.3.0`。npm 12 默认阻止 lifecycle scripts 时，平台会显式执行包内 postinstall，避免留下退出码 1 的 `opencode` stub；CI 的镜像检查、安装验收和文档同步更新。已运行过 `035_builtin_opencode_defaults.sql` 的部署需补跑 `037_opencode_postinstall.sql`。
 
 ## 0.3.10-rc.1 — OpenCode 2 executor and Codex subscriptions (prerelease)
 

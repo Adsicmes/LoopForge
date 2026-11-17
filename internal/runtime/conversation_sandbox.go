@@ -145,7 +145,12 @@ func conversationCLISetup(provider, binary string) (string, error) {
 		if provider == AgentCLIDeepSeek {
 			flags = "--engine-strict=false "
 		}
-		installer = "npm install --no-audit --no-fund " + flags + "--prefix /opt/loopforge/conversation-cli " + shellSingleQuote(pkg) + " >&2\nln -sf ../node_modules/.bin/" + shellSingleQuote(binary) + " /opt/loopforge/conversation-cli/bin/" + shellSingleQuote(binary)
+		installer = "npm install --no-audit --no-fund " + flags + "--prefix /opt/loopforge/conversation-cli " + shellSingleQuote(pkg) + " >&2"
+		if provider == AgentCLIOpenCode {
+			// npm 12 blocks lifecycle scripts; OpenCode then leaves a stub.
+			installer += "\nnode /opt/loopforge/conversation-cli/node_modules/@opencode/cli/postinstall.mjs >&2"
+		}
+		installer += "\nln -sf ../node_modules/.bin/" + shellSingleQuote(binary) + " /opt/loopforge/conversation-cli/bin/" + shellSingleQuote(binary)
 	} else {
 		switch provider {
 		case AgentCLIZCode:
