@@ -93,6 +93,7 @@ type Server struct {
 	botIdentities   *botIdentityHandlers
 	know            *knowledgeHandlers // knowledge.go / knowledge_proxy.go
 	feedback        *feedbackHandlers  // page_feedback.go
+	codexSub        *codexSubscriptionHandlers
 }
 
 func New(s *repo.Store, e *engine.Engine, syncSvc *tracker.Service, basicUser, basicPass string) *gin.Engine {
@@ -172,6 +173,7 @@ func newWithNotifications(s *repo.Store, e *engine.Engine, syncSvc *tracker.Serv
 		syncAPI:         &syncHandlers{deps: d},
 		know:            &knowledgeHandlers{deps: d, svc: knowledge.NewService(d.repo, randomID), activity: &knowledgeActivityLog{}},
 		feedback:        &feedbackHandlers{deps: d},
+		codexSub:        newCodexSubscriptionHandlers(d),
 	}
 	e.WorkspaceActive = func(run domain.Run) bool { return api.runs.terminals.HasRunScope(run.ID) }
 	api.catalog.notifications = api.notifications
@@ -264,6 +266,9 @@ func newWithNotifications(s *repo.Store, e *engine.Engine, syncSvc *tracker.Serv
 	g.GET("/api/platform/codebuddy-key", api.users.platformCodeBuddyKey)
 	g.PUT("/api/platform/codebuddy-key", api.users.platformCodeBuddyKey)
 	g.DELETE("/api/platform/codebuddy-key", api.users.platformCodeBuddyKey)
+	g.GET("/api/platform/codex-subscription", api.codexSub.platformSettings)
+	g.PUT("/api/platform/codex-subscription", api.codexSub.platformSettings)
+	g.Any("/api/codex-gateway/*path", api.codexSub.gateway)
 	// master(net/http) 的 /api/users/ 子树只接受 PUT /api/users/<id>/credentials
 	// 一种形态，其余任何方法/子路径都走 method(w) → 405 JSON。
 	g.Any("/api/users/:id/credentials", func(c *gin.Context) {
@@ -278,6 +283,11 @@ func newWithNotifications(s *repo.Store, e *engine.Engine, syncSvc *tracker.Serv
 	g.POST("/api/users/:id/git-token/verify", api.users.verifyGitToken)
 	g.GET("/api/users/:id/yunxiao-token/verify", api.users.verifyYunxiaoToken)
 	g.POST("/api/users/:id/yunxiao-token/verify", api.users.verifyYunxiaoToken)
+	g.GET("/api/users/:id/codex-subscription", api.codexSub.status)
+	g.POST("/api/users/:id/codex-subscription/device", api.codexSub.startDevice)
+	g.POST("/api/users/:id/codex-subscription/device/poll", api.codexSub.pollDevice)
+	g.PUT("/api/users/:id/codex-subscription/auth-json", api.codexSub.pasteAuthJSON)
+	g.DELETE("/api/users/:id/codex-subscription", api.codexSub.disconnect)
 	g.GET("/api/users/:id/git-ssh-keys", api.users.gitSSHKeys)
 	g.PUT("/api/users/:id/git-ssh-keys", api.users.gitSSHKeys)
 	g.DELETE("/api/users/:id/git-ssh-keys/:keyID", api.users.gitSSHKeys)
@@ -717,6 +727,11 @@ func (s *Server) capabilities(c *gin.Context) {
 			"apiBase":        strings.TrimSpace(cfg.YunxiaoAPIBase),
 			"organizationId": strings.TrimSpace(cfg.YunxiaoOrganizationID),
 		},
+		"codexSubscription": map[string]any{
+			"enabled":                 s.repo.CodexSubscriptionEnabled(),
+			"authJsonAllowed":         s.repo.CodexSubscriptionAuthJSONEnabled(),
+			"credentialKeyConfigured": domain.CredentialKeyConfigured(),
+		},
 	})
 }
 
@@ -785,8 +800,9 @@ func (s *Server) bootstrap(c *gin.Context) {
 		"users":   domain.PublicUsers(users),
 		"storage": s.repo.StorageInfo(),
 		"capabilities": map[string]bool{
-			"docker":  runtime.DockerReady(),
-			"yunxiao": yunxiaoConfigured(syncConfig),
+			"docker":            runtime.DockerReady(),
+			"yunxiao":           yunxiaoConfigured(syncConfig),
+			"codexSubscription": s.repo.CodexSubscriptionEnabled(),
 		},
 		// Set when users without their own CodeBuddy API Key can still chat
 		// and run SOPs on the platform's shared key, limited to these models

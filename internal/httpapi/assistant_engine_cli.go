@@ -42,6 +42,9 @@ type assistantEngineInvocationOpts struct {
 	// such as a title summary.
 	ReviewOnly bool
 	User       runtime.ProviderCredential
+	// CodexCapture receives the private auth.json path after a subscription
+	// turn so the caller can persist a refreshed token.
+	CodexCapture func(string)
 }
 
 func assistantEngineConfigDir(engine string) string {

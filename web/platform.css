@@ -2439,6 +2439,12 @@ html[data-theme="dark"] .credential-logo.monochrome img{filter:invert(1)}
 .credential-vline:empty{display:none}
 .credential-vline.is-err{color:var(--cr-err)}.credential-vline.is-info{color:var(--cr-info)}.credential-vline.is-warn{color:var(--cr-warn)}
 .credential-vline>svg{flex:none}
+.credential-authjson{display:grid;gap:10px;padding-top:10px;border-top:1px dashed var(--cr-line)}
+.credential-authjson>summary{cursor:pointer;color:var(--cr-muted);font-size:12px;list-style:none}
+.credential-authjson>summary::-webkit-details-marker{display:none}
+.credential-authjson>summary::before{content:"+";display:inline-block;width:14px;color:var(--cr-muted)}
+.credential-authjson[open]>summary::before{content:"−"}
+.credential-authjson textarea{min-height:84px;resize:vertical;font-size:12px;line-height:1.5}
 .credential-swap{display:grid}
 .credential-swap>*{grid-area:1/1;transition:opacity .2s,transform .3s var(--cr-fold)}
 .credential-swap>.is-off{opacity:0;transform:translateY(6px);pointer-events:none}

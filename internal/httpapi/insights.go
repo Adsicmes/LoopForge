@@ -278,8 +278,12 @@ func validateInsightUsageAmounts(u domain.InsightUsage) string {
 		if u.CostUSD == nil || math.IsNaN(*u.CostUSD) || math.IsInf(*u.CostUSD, 0) || *u.CostUSD < 0 || *u.CostUSD > 1e9 {
 			return "已知成本须为 0–10^9 USD"
 		}
+	case "included":
+		if u.CostUSD != nil && *u.CostUSD != 0 {
+			return "订阅包含的成本必须为 0"
+		}
 	default:
-		return "costStatus 必须为 reported、estimated 或 unknown"
+		return "costStatus 必须为 reported、estimated、included 或 unknown"
 	}
 	return ""
 }

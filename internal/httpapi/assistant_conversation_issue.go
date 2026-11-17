@@ -196,7 +196,7 @@ func (h *agentToolGateway) recordConversationMRs(issueID string, results []works
 // conversation to that workspace's requirement: a conversation's first turn
 // is saved only when it ends, after its tools created the requirement. SOP
 // runs a conversation borrowed keep only their own usage.
-func attributeConversationUsage(d *deps, s *AgentToolSession, model string, usage *domain.TokenUsage) {
+func attributeConversationUsage(d *deps, s *AgentToolSession, model string, usage *domain.TokenUsage, included ...bool) {
 	if s == nil {
 		return
 	}
@@ -204,8 +204,9 @@ func attributeConversationUsage(d *deps, s *AgentToolSession, model string, usag
 	if runID == "" {
 		return
 	}
+	isIncluded := len(included) > 0 && included[0]
 	if usage != nil {
-		if err := d.repo.AddConversationRunUsage(runID, model, *usage); err != nil {
+		if err := d.repo.AddConversationRunUsage(runID, model, *usage, isIncluded); err != nil {
 			log.Printf("add conversation usage to workspace %s: %v", runID, err)
 		}
 	}

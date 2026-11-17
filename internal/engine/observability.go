@@ -32,6 +32,9 @@ func applyUsage(run *domain.Run, nr *domain.NodeRun, sessionID string, snap doma
 	if run == nil || nr == nil {
 		return
 	}
+	if domain.IsIncludedAuthMode(nr.AuthMode) {
+		snap = domain.IncludedUsage(snap)
+	}
 	if sessionID == "" {
 		sessionID = nr.SessionID
 	}
@@ -43,8 +46,8 @@ func applyUsage(run *domain.Run, nr *domain.NodeRun, sessionID string, snap doma
 	// 成本识别状态与 token 数值变化解耦：跟随最近一次带状态的快照，
 	// 让"真实零成本"与"成本未识别"在 run 级汇总上也可区分。
 	if snap.CostStatus != "" {
-		run.Usage.CostStatus = snap.CostStatus
-		nr.Usage.CostStatus = snap.CostStatus
+		run.Usage.CostStatus = domain.CombineCostStatus(run.Usage.CostStatus, snap.CostStatus)
+		nr.Usage.CostStatus = domain.CombineCostStatus(nr.Usage.CostStatus, snap.CostStatus)
 	}
 	if !usageHasValues(delta) {
 		nr.UsageCursor = snap

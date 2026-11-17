@@ -895,7 +895,7 @@ func analyticsIsRequirementIssue(issue domain.Issue) bool {
 // 旧数据（无 costStatus）按是否有成本金额判定。
 func usageCostKnown(usage domain.TokenUsage) bool {
 	switch strings.ToLower(strings.TrimSpace(usage.CostStatus)) {
-	case "reported", "estimated":
+	case "reported", "estimated", "included":
 		return true
 	case "unknown":
 		return false

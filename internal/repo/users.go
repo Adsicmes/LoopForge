@@ -34,6 +34,9 @@ type userWithConfig struct {
 	CodexAPIKey                  *string    `gorm:"column:codex_api_key"`
 	CodexBaseURL                 *string    `gorm:"column:codex_base_url"`
 	CodexModels                  *string    `gorm:"column:codex_models"`
+	CodexAuthMode                *string    `gorm:"column:codex_auth_mode"`
+	CodexSubscriptionConfigured  bool       `gorm:"column:codex_subscription_configured"`
+	CodexSubscriptionNeedsReauth bool       `gorm:"column:codex_subscription_needs_reauth"`
 	ClaudeCodeAPIKey             *string    `gorm:"column:claude_code_api_key"`
 	ClaudeCodeBaseURL            *string    `gorm:"column:claude_code_base_url"`
 	ClaudeCodeModels             *string    `gorm:"column:claude_code_models"`
@@ -47,7 +50,10 @@ const userSelectColumns = `u.id, u.staff_id, u.login_name, u.chinese_name, u.dep
 	c.git_token, c.yunxiao_token, c.yunxiao_user_id,
 	EXISTS (SELECT 1 FROM user_git_ssh_keys k WHERE k.user_id = u.id) AS git_ssh_key_configured,
 	c.gongfeng_refresh_token, c.gongfeng_token_expires_at, c.codebuddy_api_key, COALESCE(c.codebuddy_internet_environment, '') AS codebuddy_internet_environment,
-	c.codex_api_key, c.codex_base_url, c.codex_models, c.claude_code_api_key, c.claude_code_base_url, c.claude_code_models,
+	c.codex_api_key, c.codex_base_url, c.codex_models, COALESCE(c.codex_auth_mode, '') AS codex_auth_mode,
+	EXISTS (SELECT 1 FROM user_codex_subscriptions s WHERE s.user_id = u.id) AS codex_subscription_configured,
+	COALESCE((SELECT s.needs_reauth FROM user_codex_subscriptions s WHERE s.user_id = u.id LIMIT 1), 0) AS codex_subscription_needs_reauth,
+	c.claude_code_api_key, c.claude_code_base_url, c.claude_code_models,
 	c.agent_cli_credentials,
 	u.created_at, u.updated_at`
 
@@ -83,6 +89,11 @@ func (r userWithConfig) toDomain() domain.User {
 		u.CodexBaseURL = *r.CodexBaseURL
 	}
 	u.CodexModels = decodeCLIModels(r.CodexModels)
+	if r.CodexAuthMode != nil {
+		u.CodexAuthMode = *r.CodexAuthMode
+	}
+	u.CodexSubscriptionConfigured = r.CodexSubscriptionConfigured
+	u.CodexSubscriptionNeedsReauth = r.CodexSubscriptionNeedsReauth
 	if r.ClaudeCodeAPIKey != nil {
 		u.ClaudeCodeAPIKey = *r.ClaudeCodeAPIKey
 	}
@@ -168,6 +179,7 @@ func (r *UsersRepo) PutUser(v domain.User) error {
 		v.GongfengRefreshToken = old.GongfengRefreshToken
 		v.GongfengTokenExpiresAt = old.GongfengTokenExpiresAt
 		v.CodexAPIKey, v.CodexBaseURL, v.CodexModels = old.CodexAPIKey, old.CodexBaseURL, old.CodexModels
+		v.CodexAuthMode = old.CodexAuthMode
 		v.ClaudeCodeAPIKey, v.ClaudeCodeBaseURL, v.ClaudeCodeModels = old.ClaudeCodeAPIKey, old.ClaudeCodeBaseURL, old.ClaudeCodeModels
 		v.CodeBuddyAPIKey = old.CodeBuddyAPIKey
 		v.CodeBuddyInternetEnvironment = old.CodeBuddyInternetEnvironment
@@ -262,6 +274,7 @@ type UserCredentialUpdate struct {
 	CodexAPIKeyClear             bool               `json:"codexApiKeyClear"`
 	CodexBaseURL                 *string            `json:"codexBaseUrl"`
 	CodexModels                  *[]domain.CLIModel `json:"codexModels"`
+	CodexAuthMode                *string            `json:"codexAuthMode"`
 	ClaudeCodeAPIKey             string             `json:"claudeCodeApiKey"`
 	ClaudeCodeAPIKeyClear        bool               `json:"claudeCodeApiKeyClear"`
 	ClaudeCodeBaseURL            *string            `json:"claudeCodeBaseUrl"`
@@ -334,6 +347,13 @@ func (r *UsersRepo) UpdateUserCredentials(id int64, update UserCredentialUpdate)
 		}
 		user.CodexModels = models
 	}
+	if update.CodexAuthMode != nil {
+		mode := strings.TrimSpace(*update.CodexAuthMode)
+		if !domain.ValidCodexAuthMode(mode) {
+			return domain.User{}, fmt.Errorf("Codex 认证方式只能是 api_key、subscription 或 access_token")
+		}
+		user.CodexAuthMode = mode
+	}
 	if update.ClaudeCodeModels != nil {
 		models, err := normalizeCLIModels(*update.ClaudeCodeModels)
 		if err != nil {
@@ -377,7 +397,7 @@ func (r *UsersRepo) writeUserConfig(v domain.User) error {
 		"gongfeng_refresh_token": nullableString(v.GongfengRefreshToken), "gongfeng_token_expires_at": timePtr(v.GongfengTokenExpiresAt),
 		"codebuddy_api_key":              nullableString(v.CodeBuddyAPIKey),
 		"codebuddy_internet_environment": v.CodeBuddyInternetEnvironment,
-		"codex_api_key":                  nullableString(v.CodexAPIKey), "codex_base_url": nullableString(v.CodexBaseURL), "codex_models": encodeCLIModels(v.CodexModels),
+		"codex_api_key":                  nullableString(v.CodexAPIKey), "codex_base_url": nullableString(v.CodexBaseURL), "codex_models": encodeCLIModels(v.CodexModels), "codex_auth_mode": nullableString(v.CodexAuthMode),
 		"claude_code_api_key": nullableString(v.ClaudeCodeAPIKey), "claude_code_base_url": nullableString(v.ClaudeCodeBaseURL), "claude_code_models": encodeCLIModels(v.ClaudeCodeModels),
 		"agent_cli_credentials": encodeAgentCLICredentials(v.AgentCLICredentials),
 		"created_at":            timePtr(v.CreatedAt), "updated_at": timePtr(v.UpdatedAt),

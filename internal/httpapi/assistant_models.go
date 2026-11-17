@@ -219,9 +219,9 @@ func (h *assistantHandlers) models(c *gin.Context) {
 		catalog.SponsoredModel, catalog.SponsoredModels = key.Models[0], key.Models
 	}
 	if signedIn {
-		catalog.Models = append(catalog.Models, assistantEngineModels(c.Request.Context(), user)...)
+		catalog.Models = append(catalog.Models, assistantEngineModels(c.Request.Context(), user, h.codexSubscriptionSelected(user))...)
 		h.saveCursorCatalog(user)
-		catalog.Engines = assistantEngineOptions(user, shared && strings.TrimSpace(user.CodeBuddyAPIKey) == "")
+		catalog.Engines = h.assistantEngineOptions(user, shared && strings.TrimSpace(user.CodeBuddyAPIKey) == "")
 	}
 	c.JSON(200, catalog)
 }

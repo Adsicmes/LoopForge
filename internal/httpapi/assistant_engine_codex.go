@@ -63,6 +63,9 @@ func prepareAssistantCodexInvocation(o assistantEngineInvocationOpts) (assistant
 			if server.threadID != "" && codexConfigKeyRe.MatchString(server.threadID) {
 				_ = writeCodexThread(o.Root, o.SessionID, server.threadID)
 			}
+			if o.CodexCapture != nil {
+				o.CodexCapture(filepath.Join(o.Root, "home", ".codex", "auth.json"))
+			}
 		},
 	}, nil
 }

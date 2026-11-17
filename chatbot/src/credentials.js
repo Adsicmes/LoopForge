@@ -4,6 +4,7 @@
 export const CREDENTIALS = {
   codeBuddyApiKey: "CodeBuddy API Key",
   codexApiKey: "Codex API Key",
+  codexSubscription: "Codex 订阅",
   claudeCodeApiKey: "Claude Code API Key",
   gitToken: "GitHub Git Token",
   yunxiaoToken: "云效访问令牌",
@@ -128,6 +129,13 @@ export const CREDENTIAL_GUIDES = {
       "回到这里点「重试节点」",
     ],
   },
+  codexSubscription: {
+    steps: [
+      "到「个人配置 → Codex 订阅」重新连接 ChatGPT 订阅",
+      "如果设备码被账号或工作区禁用，让管理员临时开启 auth.json 兜底",
+      "回到这里点「重试节点」",
+    ],
+  },
   claudeCodeApiKey: {
     steps: [
       "到「个人配置 → Claude Code API Key」填写 Key（及 Base URL）并保存，或把执行机器的认证方式切回本机登录",
@@ -148,6 +156,7 @@ export function credentialGuide(field, owner) {
 }
 
 const RULES = [
+  ["codexSubscription", /Codex[^。\n]{0,20}订阅|订阅登录已失效|refresh token/i],
   ["codexApiKey", /Codex[^。\n]{0,16}API Key/i],
   ["claudeCodeApiKey", /Claude Code[^。\n]{0,16}API Key/i],
   [

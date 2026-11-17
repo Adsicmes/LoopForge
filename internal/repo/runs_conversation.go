@@ -65,12 +65,16 @@ func keepConversationRunFields(run *domain.Run, current runRow) {
 // priced with the turn's model, to the conversation workspace it worked in,
 // so analytics attributes the conversation's tokens and cost to that
 // workspace's project, user and requirement.
-func (r *RunsRepo) AddConversationRunUsage(runID, model string, usage domain.TokenUsage) error {
+func (r *RunsRepo) AddConversationRunUsage(runID, model string, usage domain.TokenUsage, included ...bool) error {
 	if usage.TotalTokens == 0 && usage.InputTokens == 0 && usage.OutputTokens == 0 && usage.CostUSD == 0 {
 		return nil
 	}
-	lower := strings.ToLower(strings.TrimSpace(model))
-	usage = domain.AnalyticsPricedUsage(model, usage, strings.HasPrefix(lower, "gpt-"))
+	if len(included) > 0 && included[0] {
+		usage = domain.IncludedUsage(usage)
+	} else {
+		lower := strings.ToLower(strings.TrimSpace(model))
+		usage = domain.AnalyticsPricedUsage(model, usage, strings.HasPrefix(lower, "gpt-"))
+	}
 	_, err := r.updateConversationWorkspaceRun(runID, func(row *runRow) (map[string]any, bool) {
 		var total domain.TokenUsage
 		if len(row.UsageJSON) > 0 {
@@ -84,12 +88,12 @@ func (r *RunsRepo) AddConversationRunUsage(runID, model string, usage domain.Tok
 		total.ReasoningTokens += usage.ReasoningTokens
 		total.TotalTokens += usage.TotalTokens
 		total.CostUSD += usage.CostUSD
-		// The total is only as known as its least known turn.
-		switch {
-		case first || usage.CostStatus == "unknown" || total.CostStatus == "":
+		// The total is only as known as its least known turn. A mix of
+		// plan-covered and priced turns stays estimated; unknown always wins.
+		if first {
 			total.CostStatus = usage.CostStatus
-		case usage.CostStatus == "estimated" && total.CostStatus == "reported":
-			total.CostStatus = "estimated"
+		} else {
+			total.CostStatus = domain.CombineCostStatus(total.CostStatus, usage.CostStatus)
 		}
 		return map[string]any{"usage_json": jsonBytes(total)}, true
 	})

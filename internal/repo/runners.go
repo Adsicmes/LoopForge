@@ -672,6 +672,12 @@ func scrubRunnerTaskCredentials(task *domain.RunnerTask) {
 	task.Invocation.CodeBuddyInternetEnvironment = ""
 	task.Invocation.CodexAPIKey = ""
 	task.Invocation.CodexBaseURL = ""
+	// Gateway tokens are run-scoped, but a terminal task keeps its payload for
+	// history; drop the token so a later reader cannot replay it.
+	task.Invocation.CodexAuthMode = ""
+	task.Invocation.CodexGatewayURL = ""
+	task.Invocation.CodexGatewayToken = ""
+	task.Invocation.CodexGatewayExpiresAt = time.Time{}
 	task.Invocation.ClaudeCodeAPIKey = ""
 	task.Invocation.ClaudeCodeBaseURL = ""
 	task.Invocation.AgentCLIAPIKey = ""

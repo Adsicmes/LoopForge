@@ -17,14 +17,26 @@ func analyticsPricedRun(run domain.Run) domain.Run {
 	var input, output, read, write, total int64
 	var cost float64
 	known := true
+	included, billable := 0, 0
 	for id, original := range run.Nodes {
 		if original == nil {
 			continue
 		}
 		node := *original
-		model := strings.ToLower(strings.TrimSpace(node.Model))
-		inclusive := node.Provider == "codex" || node.Provider == "openai" || strings.HasPrefix(model, "gpt-")
-		node.Usage = domain.AnalyticsPricedUsage(node.Model, node.Usage, inclusive)
+		usage := node.Usage
+		zeroUsage := usage.InputTokens == 0 && usage.OutputTokens == 0 && usage.TotalTokens == 0 && usage.CacheReadTokens == 0 && usage.CacheWriteTokens == 0 && usage.CostUSD == 0
+		if !zeroUsage {
+			billable++
+			model := strings.ToLower(strings.TrimSpace(node.Model))
+			inclusive := node.Provider == "codex" || node.Provider == "openai" || strings.HasPrefix(model, "gpt-")
+			if domain.IsIncludedAuthMode(node.AuthMode) {
+				node.Usage = domain.IncludedUsage(node.Usage)
+				included++
+			} else {
+				node.Usage = domain.AnalyticsPricedUsage(node.Model, node.Usage, inclusive)
+			}
+			known = known && usageCostKnown(node.Usage)
+		}
 		nodes[id] = &node
 		input += node.Usage.InputTokens
 		output += node.Usage.OutputTokens
@@ -32,7 +44,6 @@ func analyticsPricedRun(run domain.Run) domain.Run {
 		write += node.Usage.CacheWriteTokens
 		total += node.Usage.TotalTokens
 		cost += node.Usage.CostUSD
-		known = known && usageCostKnown(node.Usage)
 	}
 	u := run.Usage
 	if input != u.InputTokens || output != u.OutputTokens || read != u.CacheReadTokens || write != u.CacheWriteTokens || total != u.TotalTokens {
@@ -42,8 +53,13 @@ func analyticsPricedRun(run domain.Run) domain.Run {
 		known = false
 	}
 	run.Nodes = nodes
-	run.Usage.CostUSD, run.Usage.CostStatus = cost, "unknown"
-	if known {
+	run.Usage.CostUSD = cost
+	switch {
+	case !known:
+		run.Usage.CostStatus = "unknown"
+	case billable > 0 && included == billable:
+		run.Usage.CostStatus = "included"
+	default:
 		run.Usage.CostStatus = "estimated"
 	}
 	return run

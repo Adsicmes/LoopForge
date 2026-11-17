@@ -680,6 +680,7 @@ paths:
                 codexApiKey: {type: string, writeOnly: true, description: "Blank preserves the stored key."}
                 codexApiKeyClear: {type: boolean}
                 codexBaseUrl: {type: string, description: "HTTP(S) Responses API base URL. Omitted preserves the value; empty uses the official endpoint."}
+                codexAuthMode: {type: string, enum: ["", api_key, subscription, access_token], description: "Explicit Codex credential choice when both an API key and a subscription exist. Empty uses the API key when one is saved, otherwise the subscription. A chosen mode never falls back silently to the other credential."}
                 claudeCodeApiKey: {type: string, writeOnly: true, description: "Blank preserves the stored key."}
                 claudeCodeApiKeyClear: {type: boolean}
                 claudeCodeBaseUrl: {type: string, description: "HTTP(S) Anthropic-compatible service URL. Omitted preserves the value; empty uses the official endpoint."}
@@ -692,6 +693,191 @@ paths:
                 $ref: "#/components/schemas/User"
         "403":
           $ref: "#/components/responses/Unauthorized"
+  /api/users/{id}/codex-subscription:
+    get:
+      tags: [Users]
+      operationId: getOwnCodexSubscription
+      summary: Show the current user's ChatGPT subscription status
+      description: The owner only. Returns account email, plan and refresh state but never the stored tokens.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: integer, format: int64}
+      responses:
+        "200":
+          description: Subscription status and platform switches
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/CodexSubscriptionStatus"}
+        "403": {description: Not the current user}
+    delete:
+      tags: [Users]
+      operationId: disconnectOwnCodexSubscription
+      summary: Disconnect the current user's ChatGPT subscription
+      description: Deletes the encrypted credential and clears the explicit Codex auth mode. In-flight runs finish with the credential they started with.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: integer, format: int64}
+      responses:
+        "200":
+          description: Updated status
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/CodexSubscriptionStatus"}
+        "403": {description: Not the current user}
+  /api/users/{id}/codex-subscription/device:
+    post:
+      tags: [Users]
+      operationId: startCodexDeviceLogin
+      summary: Start ChatGPT device-code login
+      description: >-
+        The platform runs `codex login --device-auth` in an isolated CODEX_HOME and returns the
+        verification URL and one-time code. Poll the returned flowId to finish. Requires the platform
+        Codex subscription switch and AGENTFLOW_CREDENTIAL_KEY.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: integer, format: int64}
+      responses:
+        "200":
+          description: Device flow, or the completed status when login finished immediately
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/CodexDeviceFlow"}
+        "403": {description: Not the current user, or the platform switch is off}
+        "409": {description: A device login is already pending for this user}
+        "503": {description: AGENTFLOW_CREDENTIAL_KEY is not configured}
+  /api/users/{id}/codex-subscription/device/poll:
+    post:
+      tags: [Users]
+      operationId: pollCodexDeviceLogin
+      summary: Poll a ChatGPT device-code login
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: integer, format: int64}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [flowId]
+              properties:
+                flowId: {type: string}
+      responses:
+        "200":
+          description: Flow status (pending, connected or error)
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/CodexDeviceFlow"}
+        "404": {description: Unknown or finished flow}
+  /api/users/{id}/codex-subscription/auth-json:
+    put:
+      tags: [Users]
+      operationId: saveCodexAuthJSON
+      summary: Save a pasted Codex auth.json
+      description: >-
+        Fallback when the account or workspace disabled device-code login. Requires both platform
+        switches and a same-origin browser request. The body is validated as a ChatGPT token bundle
+        and stored encrypted; it is never echoed back.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: integer, format: int64}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [authJson]
+              properties:
+                authJson: {type: string, writeOnly: true, maxLength: 65536}
+      responses:
+        "200":
+          description: Updated status
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/CodexSubscriptionStatus"}
+        "400": {description: The content is not a ChatGPT auth.json}
+        "403": {description: Not the current user, same-origin required, or fallback disabled}
+  /api/platform/codex-subscription:
+    get:
+      tags: [Users]
+      operationId: getPlatformCodexSubscription
+      summary: Show the platform Codex subscription switches
+      description: Platform administrators only. Counts connected users but never returns credentials.
+      responses:
+        "200":
+          description: Switches, connected count and whether the encryption key is configured
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/PlatformCodexSubscription"}
+        "403": {description: Platform administrator access required}
+    put:
+      tags: [Users]
+      operationId: savePlatformCodexSubscription
+      summary: Enable or disable Codex subscription support
+      description: >-
+        Platform administrators only; browser requests must be same-origin. Enabling requires
+        AGENTFLOW_CREDENTIAL_KEY. With the switch off, subscription credentials are neither accepted
+        nor used, and runs fail with an explicit reason instead of falling back to an API key.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enabled: {type: boolean}
+                authJsonAllowed: {type: boolean, description: Allow the pasted auth.json fallback when device-code login is unavailable}
+      responses:
+        "200":
+          description: Saved settings
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/PlatformCodexSubscription"}
+        "400": {description: Enabling without AGENTFLOW_CREDENTIAL_KEY}
+        "403": {description: Platform administrator access or same-origin request required}
+  /api/codex-gateway/{path}:
+    get:
+      tags: [MCP]
+      operationId: codexGatewayModels
+      summary: List Codex models through the subscription gateway
+      description: >-
+        Execution-machine only. Authenticates with a run-scoped gateway token, injects the user's
+        OAuth access token and proxies GET /models to chatgpt.com. The refresh token never reaches
+        the runner.
+      parameters:
+        - name: path
+          in: path
+          required: true
+          schema: {type: string, enum: [models]}
+      responses:
+        "200": {description: Upstream model list}
+        "401": {description: Missing, invalid or expired gateway token}
+    post:
+      tags: [MCP]
+      operationId: codexGatewayResponses
+      summary: Send a Responses request through the subscription gateway
+      description: Authenticates with a run-scoped gateway token and proxies POST /responses to chatgpt.com with the user's OAuth access token. Streaming responses are forwarded as-is.
+      parameters:
+        - name: path
+          in: path
+          required: true
+          schema: {type: string, enum: [responses]}
+      responses:
+        "200": {description: Upstream response, including SSE streams}
+        "401": {description: Missing, invalid or expired gateway token}
+        "403": {description: Subscription disabled or the run has ended}
+        "503": {description: Another request is rotating the refresh token; retry after Retry-After}
   /api/platform/accounts:
     get:
       tags: [Users]
@@ -4250,6 +4436,36 @@ components:
               name: {type: string}
               family: {type: string}
               credits: {type: string}
+    CodexSubscriptionStatus:
+      type: object
+      properties:
+        enabled: {type: boolean, description: Platform switch}
+        mode: {type: string, description: Explicit auth mode, empty when not chosen}
+        configured: {type: boolean}
+        needsReauth: {type: boolean}
+        authJsonAllowed: {type: boolean, description: Whether the pasted auth.json fallback is enabled}
+        credentialKeyConfigured: {type: boolean, description: Whether AGENTFLOW_CREDENTIAL_KEY can encrypt the credential}
+        email: {type: string, description: ChatGPT account email; owner only}
+        plan: {type: string, description: Display plan name such as Plus, Pro or Business}
+        connectedAt: {type: string, format: date-time}
+        lastRefreshAt: {type: string, format: date-time}
+        lastError: {type: string}
+    CodexDeviceFlow:
+      type: object
+      properties:
+        flowId: {type: string}
+        status: {type: string, enum: [pending, connected, error]}
+        userCode: {type: string, description: One-time code to enter on the verification page}
+        verificationUrl: {type: string}
+        expiresAt: {type: string, format: date-time}
+        error: {type: string}
+    PlatformCodexSubscription:
+      type: object
+      properties:
+        enabled: {type: boolean}
+        authJsonAllowed: {type: boolean}
+        connectedUsers: {type: integer, format: int64}
+        credentialKeyConfigured: {type: boolean}
     User:
       type: object
       required: [id, loginName]
@@ -4265,6 +4481,9 @@ components:
         codeBuddyApiKeyConfigured: {type: boolean, readOnly: true}
         codexApiKeyConfigured: {type: boolean, readOnly: true}
         codexBaseUrl: {type: string}
+        codexAuthMode: {type: string, enum: ["", api_key, subscription, access_token], description: Explicit credential choice; empty resolves to the saved API key, else the subscription.}
+        codexSubscriptionConfigured: {type: boolean, readOnly: true, description: A ChatGPT subscription credential is connected. Account details are only on the owner's status endpoint.}
+        codexSubscriptionNeedsReauth: {type: boolean, readOnly: true, description: The refresh token was rejected and the user must reconnect.}
         claudeCodeApiKeyConfigured: {type: boolean, readOnly: true}
         claudeCodeBaseUrl: {type: string}
         codeBuddyInternetEnvironment: {type: string}

@@ -104,11 +104,57 @@ func IsHYModel(model string) bool {
 	return model == "hy" || strings.HasPrefix(model, "hy-") || strings.HasPrefix(model, "hy.") || hyVersionedModel.MatchString(model) || strings.HasPrefix(model, "hunyuan")
 }
 
+// IsIncludedAuthMode reports whether a Codex auth mode is covered by a plan
+// rather than billed per token.
+func IsIncludedAuthMode(mode string) bool {
+	switch strings.TrimSpace(mode) {
+	case CodexAuthSubscription, CodexAuthGateway, CodexAuthAccessToken:
+		return true
+	default:
+		return false
+	}
+}
+
+// IncludedUsage returns a copy whose cost is known to be covered by a plan.
+func IncludedUsage(usage TokenUsage) TokenUsage {
+	usage.CostUSD = 0
+	usage.CostStatus = "included"
+	return usage
+}
+
+// CombineCostStatus merges cost statuses for a run that can mix plan-covered
+// and per-token nodes. The least certain status wins: unknown above
+// estimated above included/reported. A mix of included and reported is
+// estimated, and estimated is never upgraded by a later reported turn.
+func CombineCostStatus(current, next string) string {
+	current, next = strings.TrimSpace(current), strings.TrimSpace(next)
+	if current == "" {
+		return next
+	}
+	if next == "" || current == next {
+		return current
+	}
+	if current == "unknown" || next == "unknown" {
+		return "unknown"
+	}
+	if current == "estimated" || next == "estimated" {
+		return "estimated"
+	}
+	if current == "included" || next == "included" {
+		return "estimated"
+	}
+	return next
+}
+
 // AnalyticsPricedUsage never mutates stored billing facts. CostUSD in the
 // projection is a USD equivalent of the CNY statistic for legacy consumers.
 // Inclusive input (Codex/external API) includes caches; Anthropic input excludes them.
 func AnalyticsPricedUsage(model string, usage TokenUsage, inclusiveInput bool) TokenUsage {
 	out := usage
+	if strings.EqualFold(strings.TrimSpace(usage.CostStatus), "included") {
+		out.CostUSD, out.CostStatus = 0, "included"
+		return out
+	}
 	out.CostUSD, out.CostStatus = 0, "unknown"
 	if IsHYModel(model) {
 		// Hy / Hunyuan models are free on the platform; adapter amounts are ignored.

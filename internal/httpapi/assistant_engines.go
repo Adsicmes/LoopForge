@@ -71,18 +71,52 @@ func assistantEngineCredentialField(engine string) string {
 	return "agentCli." + engine
 }
 
+// codexAvailable reports whether the user has a usable ChatGPT subscription
+// credential under the platform switch. It never loads the secret.
+func (h *assistantHandlers) codexAvailable(user domain.User) bool {
+	if h == nil || h.repo == nil || user.ID <= 0 {
+		return false
+	}
+	return h.repo.CodexSubscriptionEnabled() && user.CodexSubscriptionConfigured && !user.CodexSubscriptionNeedsReauth
+}
+
+// codexSubscriptionSelected reports whether the user's explicit mode (or the
+// only available credential) makes subscription the model-catalog source.
+func (h *assistantHandlers) codexSubscriptionSelected(user domain.User) bool {
+	if !h.codexAvailable(user) {
+		return false
+	}
+	switch strings.TrimSpace(user.CodexAuthMode) {
+	case domain.CodexAuthSubscription:
+		return true
+	case domain.CodexAuthAPIKey, domain.CodexAuthAccessToken:
+		return false
+	}
+	return strings.TrimSpace(user.CodexAPIKey) == ""
+}
+
+// engineAvailable reports whether the user can run engine with the
+// credential path their explicit auth choice selects.
+func (h *assistantHandlers) engineAvailable(user domain.User, engine string) bool {
+	if key, _ := assistantEngineCredential(user, engine); key != "" {
+		return true
+	}
+	return engine == assistantEngineCodex && h.codexSubscriptionSelected(user)
+}
+
 // assistantEngineOptions lists every CLI, configured or not, so the switch
 // also shows where to add a key. CodeBuddy counts as configured when the
 // platform sponsors chats without one.
-func assistantEngineOptions(user domain.User, sponsored bool) []assistantEngineOption {
+func (h *assistantHandlers) assistantEngineOptions(user domain.User, sponsored bool) []assistantEngineOption {
 	engines := append([]string{assistantEngineCodeBuddy}, assistantCLIEngines()...)
 	out := make([]assistantEngineOption, 0, len(engines))
 	for _, engine := range engines {
 		key, _ := assistantEngineCredential(user, engine)
+		configured := key != "" || (engine == assistantEngineCodeBuddy && sponsored) || (engine == assistantEngineCodex && h.codexSubscriptionSelected(user))
 		out = append(out, assistantEngineOption{
 			ID:         engine,
 			Name:       assistantEngineLabel(engine),
-			Configured: key != "" || (engine == assistantEngineCodeBuddy && sponsored),
+			Configured: configured,
 			Credential: assistantEngineCredentialField(engine),
 		})
 	}
@@ -240,6 +274,9 @@ func assistantEngineSwitchRefusal(locked, model string) string {
 }
 
 func assistantEngineMissingKey(engine string) string {
+	if engine == assistantEngineCodex {
+		return "请先在个人配置中配置 Codex API Key，或连接 Codex 订阅后再使用 Codex 模型"
+	}
 	return fmt.Sprintf("请先在个人配置中配置 %s API Key 后再使用 %s 模型", assistantEngineLabel(engine), assistantEngineLabel(engine))
 }
 
@@ -251,7 +288,7 @@ func assistantEngineMissingKey(engine string) string {
 func (h *assistantHandlers) assistantTurnUser(stored domain.User, model string) (domain.User, string, string) {
 	engine, _ := assistantModelEngine(model)
 	if engine != assistantEngineCodeBuddy {
-		if key, _ := assistantEngineCredential(stored, engine); key == "" {
+		if !h.engineAvailable(stored, engine) {
 			return stored, "", assistantEngineMissingKey(engine)
 		}
 		user, _, _ := h.assistantChatUser(stored)
@@ -274,13 +311,16 @@ func (h *assistantHandlers) assistantTurnUser(stored domain.User, model string) 
 // assistantAllowedUserModel is assistantAllowedModel plus the caller's CLI
 // models. Any well-formed model ID is accepted for a configured CLI: the
 // gateway behind the Base URL decides what exists, and a discovery outage
-// must not silently move the conversation back to CodeBuddy.
-func assistantAllowedUserModel(id string, catalog assistantModelCatalog, user domain.User) string {
+// must not silently move the conversation back to CodeBuddy. codexSubscription
+// mirrors the explicit auth choice: when API Key is selected, the subscription
+// must not widen the accepted catalog.
+func assistantAllowedUserModel(id string, catalog assistantModelCatalog, user domain.User, codexSubscription ...bool) string {
 	engine, model := assistantModelEngine(id)
 	if engine == assistantEngineCodeBuddy {
 		return assistantAllowedModel(id, catalog)
 	}
-	if key, _ := assistantEngineCredential(user, engine); key == "" || !assistantValidEngineModel(model) {
+	subscribed := engine == assistantEngineCodex && len(codexSubscription) > 0 && codexSubscription[0]
+	if key, _ := assistantEngineCredential(user, engine); (key == "" && !subscribed) || !assistantValidEngineModel(model) {
 		return catalog.Default
 	}
 	return engine + ":" + model
@@ -306,11 +346,16 @@ func assistantScheduledModel(id string, catalog assistantModelCatalog) string {
 // An empty catalog asks the Base URL for its published models, then falls
 // back to the built-in executor catalog. Gemini publishes no OpenAI-style
 // list, so an empty catalog there uses the built-in models directly.
-func assistantEngineModels(ctx context.Context, user domain.User) []assistantModel {
+// codexSubscription follows the explicit auth choice: the ChatGPT
+// subscription ignores Base URL and the custom catalog, so its turn exposes
+// only the models Codex ships with.
+func assistantEngineModels(ctx context.Context, user domain.User, codexSubscription ...bool) []assistantModel {
+	subscribed := len(codexSubscription) > 0 && codexSubscription[0]
 	var out []assistantModel
 	for _, engine := range assistantCLIEngines() {
 		key, baseURL := assistantEngineCredential(user, engine)
-		if key == "" {
+		useSubscription := engine == assistantEngineCodex && subscribed
+		if key == "" && !useSubscription {
 			continue
 		}
 		protocol := assistantEngineProtocol(user, engine)
@@ -318,12 +363,14 @@ func assistantEngineModels(ctx context.Context, user domain.User) []assistantMod
 			baseURL = ""
 		}
 		var listed []assistantDiscoveredModel
-		for _, model := range assistantEngineCustomModels(user, engine) {
-			if assistantValidEngineModel(model.ID) {
-				listed = append(listed, assistantDiscoveredModel{ID: model.ID, Name: model.Name, Efforts: model.Efforts, DefaultEffort: model.DefaultEffort})
+		if !useSubscription {
+			for _, model := range assistantEngineCustomModels(user, engine) {
+				if assistantValidEngineModel(model.ID) {
+					listed = append(listed, assistantDiscoveredModel{ID: model.ID, Name: model.Name, Efforts: model.Efforts, DefaultEffort: model.DefaultEffort})
+				}
 			}
 		}
-		if len(listed) == 0 && baseURL != "" {
+		if len(listed) == 0 && baseURL != "" && !useSubscription {
 			listed = cachedAssistantEngineDiscovery(ctx, assistantEngineAnthropicModels(engine, protocol), key, baseURL)
 		}
 		// Cursor's list comes from the CLI; the saved one (the last list

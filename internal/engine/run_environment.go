@@ -229,13 +229,63 @@ func (e *Engine) resolveRunCredentials(run domain.Run) runtime.RunCredentials {
 	credentials.GitUserName = identity.name
 	credentials.GitUserEmail = identity.email
 	if user, ok := e.repo.User(userID); ok {
-		credentials.Codex = runtime.ProviderCredential{APIKey: user.CodexAPIKey, BaseURL: user.CodexBaseURL}
+		credentials.Codex = e.resolveCodexCredential(user)
 		credentials.ClaudeCode = runtime.ProviderCredential{APIKey: user.ClaudeCodeAPIKey, BaseURL: user.ClaudeCodeBaseURL}
 		credentials.AgentCLI = runtime.AgentCLIUserCredentials(user)
 	}
 	scriptAssets, _, _ := runtime.PrepareMCPServers(e.resolveScriptMCPAssets(run.ExecutionContext.ProjectID, userID), runtime.MCPTarget{GitToken: credentials.GitToken})
 	credentials.MCPServers = scriptAssets.MCPServers
 	return credentials
+}
+
+// resolveCodexCredential chooses the responsible user's Codex auth path. The
+// subscription secret is loaded only here and never serialized into a runner
+// task; V2 gateway mode is substituted later by the dispatch layer.
+func (e *Engine) resolveCodexCredential(user domain.User) runtime.ProviderCredential {
+	if e == nil || e.repo == nil || user.ID <= 0 {
+		return runtime.ProviderCredential{APIKey: user.CodexAPIKey, BaseURL: user.CodexBaseURL}
+	}
+	if !domain.CredentialKeyConfigured() {
+		if strings.TrimSpace(user.CodexAuthMode) == domain.CodexAuthSubscription || (strings.TrimSpace(user.CodexAPIKey) == "" && user.CodexSubscriptionConfigured) {
+			return runtime.ProviderCredential{AuthMode: domain.CodexAuthSubscription, AuthError: "服务端未配置 AGENTFLOW_CREDENTIAL_KEY，Codex 订阅不可用；请联系平台管理员或改用 API Key"}
+		}
+	}
+	enabled := e.repo.CodexSubscriptionEnabled()
+	sub, hasSub := e.repo.CodexSubscription(user.ID)
+	subUsable := hasSub && !sub.NeedsReauth && enabled
+	hasKey := strings.TrimSpace(user.CodexAPIKey) != ""
+
+	mode := strings.TrimSpace(user.CodexAuthMode)
+	switch mode {
+	case domain.CodexAuthSubscription:
+		switch {
+		case !enabled:
+			return runtime.ProviderCredential{AuthMode: domain.CodexAuthSubscription, AuthError: "Codex 订阅能力未开启，请联系平台管理员"}
+		case !hasSub:
+			if user.CodexSubscriptionConfigured {
+				return runtime.ProviderCredential{AuthMode: domain.CodexAuthSubscription, AuthError: "Codex 订阅凭据无法解密，请确认 AGENTFLOW_CREDENTIAL_KEY 未变更，或在个人配置中重新连接"}
+			}
+			return runtime.ProviderCredential{AuthMode: domain.CodexAuthSubscription, AuthError: "已选择 Codex 订阅，但还没有连接；请在个人配置中重新连接"}
+		case sub.NeedsReauth:
+			return runtime.ProviderCredential{AuthMode: domain.CodexAuthSubscription, AuthError: "Codex 订阅登录已失效，请在个人配置中重新连接"}
+		default:
+			return runtime.ProviderCredential{AuthMode: domain.CodexAuthSubscription, AuthJSON: sub.AuthJSON, AuthGeneration: sub.Generation}
+		}
+	case domain.CodexAuthAPIKey:
+		if !hasKey {
+			return runtime.ProviderCredential{AuthMode: domain.CodexAuthAPIKey, AuthError: "已选择 Codex API Key，但个人配置中没有填写 Key"}
+		}
+		return runtime.ProviderCredential{AuthMode: domain.CodexAuthAPIKey, APIKey: user.CodexAPIKey, BaseURL: user.CodexBaseURL}
+	case domain.CodexAuthAccessToken:
+		return runtime.ProviderCredential{AuthMode: domain.CodexAuthAccessToken, AuthError: "Codex access token 模式尚未启用"}
+	}
+	if hasKey {
+		return runtime.ProviderCredential{AuthMode: domain.CodexAuthAPIKey, APIKey: user.CodexAPIKey, BaseURL: user.CodexBaseURL}
+	}
+	if subUsable {
+		return runtime.ProviderCredential{AuthMode: domain.CodexAuthSubscription, AuthJSON: sub.AuthJSON, AuthGeneration: sub.Generation}
+	}
+	return runtime.ProviderCredential{}
 }
 
 func (env *runEnvironment) credentialSnapshot() runtime.RunCredentials {

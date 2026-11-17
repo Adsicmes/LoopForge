@@ -44,6 +44,7 @@ type userConfigRow struct {
 	CodexAPIKey                  *string    `gorm:"column:codex_api_key;type:text"`
 	CodexBaseURL                 *string    `gorm:"column:codex_base_url;type:text"`
 	CodexModels                  *string    `gorm:"column:codex_models;type:text"`
+	CodexAuthMode                *string    `gorm:"column:codex_auth_mode;size:32"`
 	ClaudeCodeAPIKey             *string    `gorm:"column:claude_code_api_key;type:text"`
 	ClaudeCodeBaseURL            *string    `gorm:"column:claude_code_base_url;type:text"`
 	ClaudeCodeModels             *string    `gorm:"column:claude_code_models;type:text"`
@@ -53,6 +54,36 @@ type userConfigRow struct {
 }
 
 func (userConfigRow) TableName() string { return "user_configs" }
+
+// userCodexSubscriptionRow stores one encrypted Codex ChatGPT credential per
+// user. The schema is also written manually in migrations/034_*.
+type userCodexSubscriptionRow struct {
+	UserID             int64      `gorm:"column:user_id;primaryKey;autoIncrement:false"`
+	AuthJSONCiphertext string     `gorm:"column:auth_json_ciphertext;type:mediumtext;not null"`
+	Generation         int64      `gorm:"column:generation;not null;default:1"`
+	AccountID          string     `gorm:"column:account_id;size:128"`
+	Email              string     `gorm:"column:email;size:255"`
+	PlanType           string     `gorm:"column:plan_type;size:64"`
+	ConnectedAt        time.Time  `gorm:"column:connected_at"`
+	LastRefreshAt      *time.Time `gorm:"column:last_refresh_at"`
+	NeedsReauth        bool       `gorm:"column:needs_reauth;not null;default:false"`
+	LastError          string     `gorm:"column:last_error;type:text"`
+	RunLeaseOwner      string     `gorm:"column:run_lease_owner;size:64"`
+	RunLeaseUntil      *time.Time `gorm:"column:run_lease_until"`
+	RefreshLeaseOwner  string     `gorm:"column:refresh_lease_owner;size:64"`
+	RefreshLeaseUntil  *time.Time `gorm:"column:refresh_lease_until"`
+	Updated            *time.Time `gorm:"column:updated_at"`
+}
+
+func (userCodexSubscriptionRow) TableName() string { return "user_codex_subscriptions" }
+
+type platformSettingRow struct {
+	Name    string     `gorm:"column:name;primaryKey;size:64"`
+	Value   string     `gorm:"column:value;type:text;not null"`
+	Updated *time.Time `gorm:"column:updated_at"`
+}
+
+func (platformSettingRow) TableName() string { return "platform_settings" }
 
 type gitSSHKeyRow struct {
 	UserID     int64  `gorm:"primaryKey;autoIncrement:false"`
@@ -701,7 +732,7 @@ func (knowledgeSubmissionRow) TableName() string { return "knowledge_submissions
 // allModels lists every table for the sqlite test schema (AutoMigrate).
 func allModels() []any {
 	return []any{domain.BotUserBinding{}, domain.BotBindingChallenge{}, domain.BotConnection{}, domain.BotConversation{}, domain.BotInteraction{}, notificationBotRow{}, botCredentialRow{}, domain.NotificationDelivery{},
-		userRow{}, localAccountRow{}, userConfigRow{}, gitSSHKeyRow{}, authIntegrationRow{}, platformCodeBuddyKeyRow{}, apiTokenRow{}, genericTemplateRow{},
+		userRow{}, localAccountRow{}, userConfigRow{}, userCodexSubscriptionRow{}, platformSettingRow{}, gitSSHKeyRow{}, authIntegrationRow{}, platformCodeBuddyKeyRow{}, apiTokenRow{}, genericTemplateRow{},
 		insightSourceRow{}, insightExecutionRow{},
 		projectRow{}, projectMemberRow{}, repositoryRow{}, businessDomainRow{}, businessDomainAssignmentRow{},
 		agentRow{}, ruleRow{}, skillRow{}, skillFileRow{}, mcpServerRow{}, mcpFileRow{}, executorRow{},

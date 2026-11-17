@@ -149,6 +149,9 @@ func (h *assistantHandlers) conversationExecutor(s *AgentToolSession, root strin
 			if !runner.SupportsConversationCLI() {
 				return preDispatchError(fmt.Errorf("执行机器需升级至 %s", domain.RunnerVersionConversationCLI))
 			}
+			if req.Operation == "start" && req.Command != nil && req.Command.Credentials.Codex.AuthMode == domain.CodexAuthGateway && !runner.SupportsCodexGateway() {
+				return preDispatchError(fmt.Errorf("执行机器需升级至 %s 才能使用 Codex 订阅", domain.RunnerVersionCodexGateway))
+			}
 			raw, err := json.Marshal(req)
 			if err != nil {
 				return preDispatchError(err)

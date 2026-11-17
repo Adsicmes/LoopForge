@@ -1733,6 +1733,7 @@ export default function App() {
                 <span>
                   当前执行器 CodeBuddy 需要先配置 CodeBuddy API Key。
                   {chat.user.codexApiKeyConfigured ||
+                  chat.user.codexSubscriptionConfigured ||
                   chat.user.claudeCodeApiKeyConfigured
                     ? "你已配置 Codex / Claude Code Key，也可以在输入框下方把执行器切换过去。"
                     : ""}

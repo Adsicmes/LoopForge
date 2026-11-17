@@ -62,8 +62,7 @@ func (h *assistantHandlers) scheduleJobAssistantUser(job domain.ScheduleJob, mod
 			return domain.User{}, false
 		}
 		user, ok := h.repo.User(id)
-		key, _ := assistantEngineCredential(user, engine)
-		return user, ok && key != ""
+		return user, ok && h.engineAvailable(user, engine)
 	}
 	if project, ok := h.repo.Project(job.ProjectID); ok {
 		if user, ok := try(project.OwnerID); ok {
