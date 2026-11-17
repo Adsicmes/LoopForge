@@ -475,9 +475,9 @@ func (h *streamHandlers) executeClarify(ctx context.Context, issue domain.Issue,
 	}
 	prompt.WriteString(clarifyRoundBudgetHint(clarifyAssistantRounds(request.History)))
 	prompt.WriteString("\n请基于以上对话继续澄清，只围绕「## 需求」本身，完成后调用 submit_clarification。")
-	cbPath, cbErr := resolveCodeBuddyBin()
-	if cbErr != nil {
-		return nil, "", nil, cbErr
+	cliPath, clarifyCredentials, clarifyModel, targetErr := h.clarifyCommandTarget(ctx, responsible, request.Model)
+	if targetErr != nil {
+		return nil, "", nil, targetErr
 	}
 	workDir := ""
 	repoInfo := map[string]any{"analyzed": false, "reason": "该 Issue 未绑定代码仓库"}
@@ -545,12 +545,13 @@ func (h *streamHandlers) executeClarify(ctx context.Context, issue domain.Issue,
 		}
 	}
 	homeDir := clarifyCLIHome(responsible.ID)
+	clarifyEngine, _ := assistantModelEngine(clarifyModel)
 	sessionID := strings.TrimSpace(request.SessionID)
 	if sessionID == "" {
 		sessionID = strings.TrimSpace(issue.Clarification.SessionID)
 	}
 	resume := sessionID != ""
-	if resume && !canResumeClarifySession(homeDir, sessionID, issue.Clarification.SessionUserID, responsible.ID) {
+	if resume && !canResumeClarification(homeDir, sessionID, issue.Clarification, responsible.ID, clarifyEngine) {
 		emit("thought", map[string]string{"kind": "status", "text": "分析环境已变化，正在结合已有回答重新分析…"})
 		sessionID = ""
 	}
@@ -642,11 +643,8 @@ func (h *streamHandlers) executeClarify(ctx context.Context, issue domain.Issue,
 	}
 	userMsg := prompt.String()
 	clarifyID := fmt.Sprintf("clarify-%d", time.Now().UnixNano())
-	modelID := clarifyAllowedModel(request.Model)
-	credentials := runtime.RunCredentials{
-		CodeBuddy: runtime.CodeBuddyCredential{APIKey: strings.TrimSpace(responsible.CodeBuddyAPIKey), InternetEnvironment: strings.TrimSpace(responsible.CodeBuddyInternetEnvironment)},
-		GitToken:  strings.TrimSpace(h.repo.GitCredential(ctx, responsible.ID)),
-	}
+	modelID := clarifyModel
+	credentials := clarifyCredentials
 	turnPrompt := userMsg
 	if resume {
 		turnPrompt = clarifyResumeTurnPrompt(issue.Title, request.Message, clarifyAssistantRounds(request.History))
@@ -659,7 +657,7 @@ func (h *streamHandlers) executeClarify(ctx context.Context, issue domain.Issue,
 		}
 	}
 	sessionContext := userMsg
-	h.rememberClarifySession(issue.ID, sessionID, responsible.ID)
+	h.rememberClarifySession(issue.ID, sessionID, responsible.ID, clarifySessionVersion(clarifyEngine))
 	if repoInfo == nil {
 		repoInfo = map[string]any{}
 	}
@@ -671,11 +669,11 @@ func (h *streamHandlers) executeClarify(ctx context.Context, issue domain.Issue,
 	var recoveredParsed any
 	var recoveredRaw string
 	for follow := 0; ; follow++ {
-		_, turnRaw, captured, err := h.runClarifyTurn(modelCtx, workDir, cbPath, modelID, turnPrompt, clarifyID, sessionID, homeDir, resume, credentials, emit, turnOpts)
+		_, turnRaw, captured, err := h.runClarifyTurn(modelCtx, workDir, cliPath, modelID, turnPrompt, clarifyID, sessionID, homeDir, resume, credentials, emit, turnOpts)
 		if captured != "" {
 			sessionID = captured
 			repoInfo["sessionId"] = sessionID
-			h.rememberClarifySession(issue.ID, sessionID, responsible.ID)
+			h.rememberClarifySession(issue.ID, sessionID, responsible.ID, clarifySessionVersion(clarifyEngine))
 		}
 		if err != nil && resume {
 			// Never reuse the missing/incompatible session ID when starting over.
@@ -684,12 +682,12 @@ func (h *streamHandlers) executeClarify(ctx context.Context, issue domain.Issue,
 			if turnPrompt != userMsg && !strings.Contains(sessionContext, turnPrompt) {
 				fallbackPrompt = sessionContext + "\n" + turnPrompt
 			}
-			_, turnRaw, captured, err = h.runClarifyTurn(modelCtx, workDir, cbPath, modelID, fallbackPrompt, clarifyID, sessionID, homeDir, false, credentials, emit, turnOpts)
+			_, turnRaw, captured, err = h.runClarifyTurn(modelCtx, workDir, cliPath, modelID, fallbackPrompt, clarifyID, sessionID, homeDir, false, credentials, emit, turnOpts)
 			resume = false
 			if captured != "" {
 				sessionID = captured
 				repoInfo["sessionId"] = sessionID
-				h.rememberClarifySession(issue.ID, sessionID, responsible.ID)
+				h.rememberClarifySession(issue.ID, sessionID, responsible.ID, clarifySessionVersion(clarifyEngine))
 			}
 		}
 		if parsed, raw, ok := takeNativeClarification(toolSession, turnRaw); ok {
@@ -721,7 +719,60 @@ func (h *streamHandlers) executeClarify(ctx context.Context, issue domain.Issue,
 	}
 }
 
-func (h *streamHandlers) rememberClarifySession(issueID, sessionID string, userID int64) {
+// clarifyCommandTarget resolves the CLI, credential and concrete model for a
+// clarification turn. OpenCode has no implicit model and may run on the
+// platform shared credential; CodeBuddy keeps its personal-key path.
+func (h *streamHandlers) clarifyCommandTarget(ctx context.Context, responsible domain.User, requested string) (string, runtime.RunCredentials, string, error) {
+	requested = strings.TrimSpace(requested)
+	engine, engineModel := assistantModelEngine(requested)
+	if requested == "" || requested == "default" {
+		engine, engineModel = runtime.AgentCLIOpenCode, "default"
+	}
+	if engine == runtime.AgentCLIOpenCode {
+		credential, ok := openCodeProviderCredential(h.repo, responsible.ID)
+		if !ok {
+			return "", runtime.RunCredentials{}, "", fmt.Errorf("请先在个人配置中配置自己的 OpenCode API Key，或让管理员配置平台共享 Key")
+		}
+		if engineModel == "" || engineModel == "default" {
+			engineModel = openCodeFirstModel(ctx, credential)
+			if engineModel == "" {
+				return "", runtime.RunCredentials{}, "", fmt.Errorf("OpenCode 需要指定模型")
+			}
+		}
+		if credential.Sponsored {
+			allowed := false
+			for _, model := range credential.Models {
+				if model.ID == engineModel {
+					allowed = true
+					break
+				}
+			}
+			if !allowed {
+				return "", runtime.RunCredentials{}, "", fmt.Errorf("当前平台共享 OpenCode Key 不允许模型 %s", engineModel)
+			}
+		}
+		bin, err := resolveAssistantEngineBin(runtime.AgentCLIOpenCode)
+		if err != nil {
+			return "", runtime.RunCredentials{}, "", err
+		}
+		credentials := runtime.RunCredentials{
+			AgentCLI: map[string]runtime.ProviderCredential{runtime.AgentCLIOpenCode: credential},
+			GitToken: strings.TrimSpace(h.repo.GitCredential(ctx, responsible.ID)),
+		}
+		return bin, credentials, runtime.AgentCLIOpenCode + ":" + engineModel, nil
+	}
+	bin, err := resolveCodeBuddyBin()
+	if err != nil {
+		return "", runtime.RunCredentials{}, "", err
+	}
+	credentials := runtime.RunCredentials{
+		CodeBuddy: runtime.CodeBuddyCredential{APIKey: strings.TrimSpace(responsible.CodeBuddyAPIKey), InternetEnvironment: strings.TrimSpace(responsible.CodeBuddyInternetEnvironment)},
+		GitToken:  strings.TrimSpace(h.repo.GitCredential(ctx, responsible.ID)),
+	}
+	return bin, credentials, clarifyAllowedModel(requested), nil
+}
+
+func (h *streamHandlers) rememberClarifySession(issueID, sessionID string, userID int64, engineVersion int) {
 	if h == nil || h.repo == nil {
 		return
 	}
@@ -733,6 +784,7 @@ func (h *streamHandlers) rememberClarifySession(issueID, sessionID string, userI
 	_, _ = h.repo.PatchIssue(issueID, func(issue *domain.Issue) error {
 		issue.Clarification.SessionID = sessionID
 		issue.Clarification.SessionUserID = userID
+		issue.Clarification.SessionEngineVersion = engineVersion
 		return nil
 	})
 }
@@ -744,6 +796,24 @@ func (h *streamHandlers) runClarifyTurn(ctx context.Context, workDir, cbPath, mo
 	})
 	if err != nil {
 		return nil, "", sessionID, err
+	}
+	if engine, _ := assistantModelEngine(model); engine == runtime.AgentCLIOpenCode {
+		if strings.TrimSpace(homeDir) == "" {
+			return nil, "", sessionID, fmt.Errorf("OpenCode 澄清需要私有 HOME")
+		}
+		if strings.TrimSpace(opts.MCPConfig) != "" {
+			servers, readErr := readAssistantMCPServers(opts.MCPConfig)
+			if readErr != nil {
+				return nil, "", sessionID, readErr
+			}
+			entries := make(map[string]any, len(servers))
+			for id, server := range servers {
+				entries[id] = server
+			}
+			if writeErr := runtime.WriteAgentCLIMCPConfig(runtime.AgentCLIOpenCode, runtime.HostAgentCLIHome(homeDir), entries, runtime.AgentCLIMCPOptions{ReadOnly: true, SubmitOnly: opts.SubmitOnly}); writeErr != nil {
+				return nil, "", sessionID, writeErr
+			}
+		}
 	}
 	if strings.TrimSpace(homeDir) != "" {
 		command = command.WithPrivateHomeDir(homeDir)

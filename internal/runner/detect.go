@@ -24,6 +24,9 @@ type providerSpec struct {
 	// VersionFlags precede --version. A CLI that rejects them is not the one
 	// the platform drives (other tools share the name) and is not reported.
 	VersionFlags []string
+	// MinMajor rejects an older major release. OpenCode 1 and 2 have different
+	// CLI/config schemas; a v1 runner must not receive v2 tasks.
+	MinMajor int
 }
 
 // defaultProviders lists the CLIs this runner drives in non-interactive
@@ -39,7 +42,7 @@ var defaultProviders = []providerSpec{
 	// Agent CLIs (domain.AgentCLIExecutorKinds) always run with the
 	// responsible user's key in a private HOME. cursor and agy have no npm
 	// package and are found on PATH only.
-	{Kind: "opencode", Binary: "opencode"},
+	{Kind: "opencode", Binary: "opencode", MinMajor: 2},
 	{Kind: "cursor", Binary: "cursor-agent"},
 	{Kind: "agy", Binary: "agy"},
 	{Kind: "kimi", Binary: "kimi"},
@@ -131,6 +134,18 @@ func detectRuntimes(ctx context.Context, extraBinaries map[string]string, invent
 		if version == "" && len(spec.VersionFlags) > 0 {
 			continue
 		}
+		if spec.MinMajor > 0 && probeMajor(version) < spec.MinMajor {
+			// Keep the runtime visible so the operator can see why this machine
+			// cannot take OpenCode work, but never dispatch to an old major.
+			out = append(out, domain.RunnerRuntime{
+				Provider:     spec.Kind,
+				BinaryPath:   path,
+				Version:      version,
+				Capabilities: []string{"upgrade_required"},
+				Status:       domain.RuntimeStatusOffline,
+			})
+			continue
+		}
 		out = append(out, domain.RunnerRuntime{
 			Provider:     spec.Kind,
 			BinaryPath:   path,
@@ -186,6 +201,29 @@ func builtinRuntimes() []domain.RunnerRuntime {
 			Status:       domain.RuntimeStatusOnline,
 		},
 	}
+}
+
+// probeMajor returns the first numeric component of a probed version (for
+// example 2 from "opencode 2.3.0"), or 0 when the output has no version.
+func probeMajor(version string) int {
+	start := -1
+	for i, r := range version {
+		if r >= '0' && r <= '9' {
+			start = i
+			break
+		}
+	}
+	if start < 0 {
+		return 0
+	}
+	major := 0
+	for _, r := range version[start:] {
+		if r < '0' || r > '9' {
+			break
+		}
+		major = major*10 + int(r-'0')
+	}
+	return major
 }
 
 func probeVersion(ctx context.Context, path string, flags []string, environments ...map[string]string) string {

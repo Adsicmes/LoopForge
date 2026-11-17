@@ -48,12 +48,13 @@ func TestWriteAgentCLIMCPConfigOpenCodeServers(t *testing.T) {
 	if err := WriteAgentCLIMCPConfig(AgentCLIOpenCode, HostAgentCLIHome(home), entries, AgentCLIMCPOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	got := readAgentCLIMCPDoc(t, home, ".config/opencode/opencode.json").(map[string]any)["mcp"]
+	doc := readAgentCLIMCPDoc(t, home, ".config/opencode/opencode.json").(map[string]any)
+	got := doc["mcp"].(map[string]any)["servers"]
 	want := normalizeJSON(t, map[string]any{
-		"http":      map[string]any{"type": "remote", "url": "http://127.0.0.1:1/mcp", "enabled": true, "timeout": 600000, "headers": map[string]any{"Authorization": "Bearer x"}},
-		"http-bare": map[string]any{"type": "remote", "url": "http://127.0.0.1:2/mcp", "enabled": true, "timeout": 600000},
-		"stdio-str": map[string]any{"type": "local", "command": []any{"node", "a.js", "--flag"}, "enabled": true, "timeout": 600000, "environment": map[string]any{"K": "V"}},
-		"stdio-any": map[string]any{"type": "local", "command": []any{"py", "b.py"}, "enabled": true, "timeout": 600000},
+		"http":      map[string]any{"type": "remote", "url": "http://127.0.0.1:1/mcp", "disabled": false, "timeout": map[string]any{"execution": 600000}, "headers": map[string]any{"Authorization": "Bearer x"}, "oauth": false},
+		"http-bare": map[string]any{"type": "remote", "url": "http://127.0.0.1:2/mcp", "disabled": false, "timeout": map[string]any{"execution": 600000}},
+		"stdio-str": map[string]any{"type": "local", "command": []any{"node", "a.js", "--flag"}, "disabled": false, "timeout": map[string]any{"execution": 600000}, "environment": map[string]any{"K": "V"}, "cwd": "/w"},
+		"stdio-any": map[string]any{"type": "local", "command": []any{"py", "b.py"}, "disabled": false, "timeout": map[string]any{"execution": 600000}},
 	})
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("opencode mcp:\n got %v\nwant %v", got, want)

@@ -261,9 +261,9 @@ func newWithNotifications(s *repo.Store, e *engine.Engine, syncSvc *tracker.Serv
 	g.GET("/api/platform/accounts", api.users.platformAccounts)
 	g.POST("/api/platform/accounts", api.users.platformAccounts)
 	g.PUT("/api/platform/accounts/:id/password", api.users.resetPlatformAccountPassword)
-	g.GET("/api/platform/codebuddy-key", api.users.platformCodeBuddyKey)
-	g.PUT("/api/platform/codebuddy-key", api.users.platformCodeBuddyKey)
-	g.DELETE("/api/platform/codebuddy-key", api.users.platformCodeBuddyKey)
+	g.GET("/api/platform/opencode-key", api.users.platformOpenCodeKey)
+	g.PUT("/api/platform/opencode-key", api.users.platformOpenCodeKey)
+	g.DELETE("/api/platform/opencode-key", api.users.platformOpenCodeKey)
 	// master(net/http) 的 /api/users/ 子树只接受 PUT /api/users/<id>/credentials
 	// 一种形态，其余任何方法/子路径都走 method(w) → 405 JSON。
 	g.Any("/api/users/:id/credentials", func(c *gin.Context) {
@@ -772,10 +772,10 @@ func (s *Server) bootstrap(c *gin.Context) {
 		currentUserID = current.ID
 	}
 	mcpServers = domain.PublicMCPServers(withMarketIcons(visibleMCPServersForUser(mcpServers, currentUserID)))
-	sharedModels := s.repo.SharedCodeBuddyModels()
+	sharedOpenCodeModels := s.repo.SharedOpenCodeModels()
 	sponsoredModel := ""
-	if len(sharedModels) > 0 {
-		sponsoredModel = sharedModels[0]
+	if len(sharedOpenCodeModels) > 0 {
+		sponsoredModel = sharedOpenCodeModels[0]
 	}
 	c.JSON(200, map[string]any{
 		"businessDomains": businessDomains, "projects": domain.PublicProjects(projects), "repositories": domain.PublicRepositories(repositories),
@@ -788,11 +788,12 @@ func (s *Server) bootstrap(c *gin.Context) {
 			"docker":  runtime.DockerReady(),
 			"yunxiao": yunxiaoConfigured(syncConfig),
 		},
-		// Set when users without their own CodeBuddy API Key can still chat
-		// and run SOPs on the platform's shared key, limited to these models
-		// (sponsoredModel is the default).
-		"sponsoredModel":  sponsoredModel,
-		"sponsoredModels": sharedModels,
+		// Set when users without their own OpenCode API Key can still chat and
+		// run SOPs on the platform's shared OpenCode credential, limited to
+		// these models (sponsoredOpenCodeModel is the default).
+		"sponsoredOpenCodeConfigured": len(sharedOpenCodeModels) > 0,
+		"sponsoredOpenCodeModel":      sponsoredModel,
+		"sponsoredOpenCodeModels":     sharedOpenCodeModels,
 	})
 }
 

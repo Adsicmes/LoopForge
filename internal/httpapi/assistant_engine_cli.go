@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -14,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"agentflow/internal/managedcli"
 	"agentflow/internal/runtime"
@@ -72,17 +74,30 @@ func resolveAssistantEngineBin(engine string) (string, error) {
 	} else if runtime.IsAgentCLI(engine) {
 		binary, override, managed = runtime.AgentCLIBinary(engine), "AGENTFLOW_"+strings.ToUpper(strings.ReplaceAll(engine, "-", "_"))+"_BIN", ""
 	}
-	if path := strings.TrimSpace(os.Getenv(override)); path != "" && fileExecutable(path) {
+	// OpenCode 2 and OpenCode 1 have incompatible CLI/config schemas. Never
+	// silently run a v1 executable left on PATH, in a managed directory or in
+	// the on-demand install directory; treat it as missing so the install
+	// button can replace it.
+	usable := func(path string) bool {
+		if strings.TrimSpace(path) == "" || !fileExecutable(path) {
+			return false
+		}
+		if engine == runtime.AgentCLIOpenCode {
+			return openCodeBinarySupported(path)
+		}
+		return true
+	}
+	if path := strings.TrimSpace(os.Getenv(override)); usable(path) {
 		return path, nil
 	}
 	if root := strings.TrimSpace(os.Getenv("AGENTFLOW_MANAGED_CLI_ROOT")); root != "" && managed != "" {
 		if inventory, err := managedcli.ReadInventory(root); err == nil {
-			if path, ok := inventory.BinaryFor(managed); ok {
+			if path, ok := inventory.BinaryFor(managed); ok && usable(path) {
 				return path, nil
 			}
 		}
 	}
-	if path, err := exec.LookPath(binary); err == nil {
+	if path, err := exec.LookPath(binary); err == nil && usable(path) {
 		return path, nil
 	}
 	home, _ := os.UserHomeDir()
@@ -90,14 +105,55 @@ func resolveAssistantEngineBin(engine string) (string, error) {
 		home = "/root"
 	}
 	for _, candidate := range []string{filepath.Join(home, ".local", "bin", binary), "/usr/local/bin/" + binary, "/usr/bin/" + binary} {
-		if fileExecutable(candidate) {
+		if usable(candidate) {
 			return candidate, nil
 		}
 	}
-	if path, ok := runtime.OnDemandCLIPath(engine); ok {
+	if path, ok := runtime.OnDemandCLIPath(engine); ok && usable(path) {
 		return path, nil
 	}
 	return "", assistantCLIMissingError{engine: engine, binary: binary}
+}
+
+type openCodeVersionProbe struct {
+	modTime time.Time
+	size    int64
+	major   int
+	ok      bool
+}
+
+var (
+	openCodeProbeMu    sync.Mutex
+	openCodeProbeCache = map[string]openCodeVersionProbe{}
+	openCodeVersionRe  = regexp.MustCompile(`(?m)(\d+)\.\d+(?:\.\d+)?`)
+)
+
+// openCodeBinarySupported reports whether path is an OpenCode 2.x executable.
+// The probe is cached by path, size and mtime so a turn does not fork a
+// process just to re-check a stable installation.
+func openCodeBinarySupported(path string) bool {
+	info, err := os.Stat(path)
+	if err != nil || info.IsDir() {
+		return false
+	}
+	openCodeProbeMu.Lock()
+	cached, ok := openCodeProbeCache[path]
+	openCodeProbeMu.Unlock()
+	if ok && cached.modTime.Equal(info.ModTime()) && cached.size == info.Size() {
+		return cached.ok
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	out, _ := exec.CommandContext(ctx, path, "--version").CombinedOutput()
+	major := 0
+	if match := openCodeVersionRe.FindSubmatch(out); len(match) == 2 {
+		major, _ = strconv.Atoi(string(match[1]))
+	}
+	probe := openCodeVersionProbe{modTime: info.ModTime(), size: info.Size(), major: major, ok: major == 2}
+	openCodeProbeMu.Lock()
+	openCodeProbeCache[path] = probe
+	openCodeProbeMu.Unlock()
+	return probe.ok
 }
 
 var errAssistantCLIMissing = errors.New("assistant CLI not installed")
@@ -305,4 +361,4 @@ func writeCodexThread(root, sessionID, threadID string) error {
 	return os.WriteFile(codexThreadsPath(root), data, 0o600)
 }
 
-var errAssistantEngineUnsupported = errors.New("该调用只支持 CodeBuddy 模型")
+var errAssistantEngineUnsupported = errors.New("该调用不支持这个 CLI 模型")

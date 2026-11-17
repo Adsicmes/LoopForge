@@ -71,9 +71,6 @@ func TestAssistantTitleModelReusesSessionModelOnOtherCLIs(t *testing.T) {
 			t.Errorf("%s: got %q/%q, want same model at %q", tc.model, model, effort, tc.wantEffort)
 		}
 	}
-	if model, effort := assistantTitleModel(context.Background(), domain.User{}, assistantChatDefaultModel, []string{assistantSponsoredModel}); model != assistantSponsoredModel || effort != "" {
-		t.Fatalf("sponsored CodeBuddy title = %q/%q", model, effort)
-	}
 	if model, effort := assistantTitleModel(context.Background(), domain.User{}, assistantChatDefaultModel, nil); model == "" || effort != "" {
 		t.Fatalf("CodeBuddy title without prices = %q/%q", model, effort)
 	}

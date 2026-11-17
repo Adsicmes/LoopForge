@@ -31,34 +31,27 @@ func TestAssistantScheduledModelKeepsCLIModels(t *testing.T) {
 	}
 }
 
-// The CodeBuddy model list is empty after a restart: a scheduled run refreshes
-// it with the owner's key and never swaps an unavailable model for the default.
-func TestScheduledRunModelRefreshesAndNeverFallsBack(t *testing.T) {
-	old := discoverCLIModels
-	discoverCLIModels = func(_ context.Context, environment, apiKey string) []string {
-		if environment == "internal" && apiKey == "owner-key" {
-			return []string{"deepseek-v4.1-flash"}
-		}
-		return nil
-	}
-	cliModelMu.Lock()
-	cliModelCache = map[string]cliModelEntry{}
-	cliModelMu.Unlock()
-	t.Cleanup(func() {
-		discoverCLIModels = old
-		cliModelMu.Lock()
-		cliModelCache = map[string]cliModelEntry{}
-		cliModelMu.Unlock()
-	})
-	owner := domain.User{CodeBuddyAPIKey: "owner-key", CodeBuddyInternetEnvironment: "internal"}
-	if got, err := scheduledRunModel(context.Background(), "deepseek-v4.1-flash", owner); err != nil || got != "deepseek-v4.1-flash" {
+// Scheduled runs default to OpenCode and never silently swap a requested model
+// for another one.
+func TestScheduledRunModelUsesOpenCodeDefault(t *testing.T) {
+	owner := testOpenCode(domain.User{})
+	if got, err := scheduledRunModel(context.Background(), testOpenCodeModel, owner); err != nil || got != testOpenCodeModel {
 		t.Fatalf("model = %q, %v", got, err)
 	}
-	if got, err := scheduledRunModel(context.Background(), "", owner); err != nil || got != assistantFixedCatalog().Default {
+	if got, err := scheduledRunModel(context.Background(), "", owner); err != nil || got != testOpenCodeModel {
 		t.Fatalf("empty model = %q, %v", got, err)
 	}
-	if got, err := scheduledRunModel(context.Background(), "gone-model", owner); err == nil || !strings.Contains(err.Error(), "gone-model") {
-		t.Fatalf("unavailable model = %q, %v", got, err)
+	if got, err := scheduledRunModel(context.Background(), "opencode:default", owner); err != nil || got != testOpenCodeModel {
+		t.Fatalf("default model = %q, %v", got, err)
+	}
+	if _, err := scheduledRunModel(context.Background(), "opencode:glm-5", domain.User{}); err == nil || !strings.Contains(err.Error(), "OpenCode") {
+		t.Fatalf("missing OpenCode credential = %v", err)
+	}
+	if got, err := scheduledRunModel(context.Background(), "codex:gpt-6-sol", domain.User{CodexAPIKey: "k"}); err != nil || got != "codex:gpt-6-sol" {
+		t.Fatalf("other CLI model = %q, %v", got, err)
+	}
+	if _, err := scheduledRunModel(context.Background(), "gone-model", owner); err == nil || !strings.Contains(err.Error(), "gone-model") {
+		t.Fatalf("unavailable model = %v", err)
 	}
 }
 
@@ -88,8 +81,19 @@ func TestScheduledTaskRunsOnTaskCLI(t *testing.T) {
 		t.Fatalf("missing claude key = %v %q", err, task.LastError)
 	}
 	task.Model = ""
-	if err := h.executeAssistantTask(context.Background(), user, &task); err == nil || !strings.Contains(task.LastError, "CodeBuddy API Key") {
-		t.Fatalf("missing codebuddy key = %v %q", err, task.LastError)
+	if err := h.executeAssistantTask(context.Background(), user, &task); err == nil || !strings.Contains(task.LastError, "OpenCode") {
+		t.Fatalf("missing opencode key = %v %q", err, task.LastError)
+	}
+	user = testOpenCode(user)
+	if updated, err := st.UpdateUserCredentials(user.ID, testOpenCodeCredentialUpdate()); err == nil {
+		user = updated
+	}
+	task.Model = ""
+	if err := h.executeAssistantTask(context.Background(), user, &task); err != nil {
+		t.Fatalf("opencode task = %v %+v", err, task)
+	}
+	if task.Model != testOpenCodeModel {
+		t.Fatalf("opencode model = %q", task.Model)
 	}
 }
 
@@ -124,7 +128,8 @@ printf '{"type":"result","result":"skills: %s"}\n' "$skills"
 		t.Fatal(err)
 	}
 	t.Setenv("AGENTFLOW_CODEBUDDY_BIN", bin)
-	task := assistantTask{ID: "skill-job", Name: "skill", ProjectID: "workbench", Prompt: "加载 skill"}
+	t.Setenv("AGENTFLOW_ASSISTANT_MODEL", "deepseek-v4.1-flash")
+	task := assistantTask{ID: "skill-job", Name: "skill", ProjectID: "workbench", Prompt: "加载 skill", Model: "deepseek-v4.1-flash"}
 	if err := h.executeAssistantTask(context.Background(), user, &task); err != nil {
 		t.Fatalf("run = %v %+v", err, task)
 	}
@@ -153,7 +158,7 @@ func joinScheduledProject(t *testing.T, st *repo.Store, projectID string, userID
 func TestScheduledTaskRunsAsChatTurn(t *testing.T) {
 	st := cvAStore(t)
 	_ = st.PutProject(domain.Project{ID: "turn-project", Name: "Turn"})
-	_ = st.PutUser(domain.User{LoginName: "turn-user", CodeBuddyAPIKey: "secret"})
+	_ = st.PutUser(testOpenCode(domain.User{LoginName: "turn-user", CodeBuddyAPIKey: "secret"}))
 	user, _ := st.UserByLoginName("turn-user")
 	h := &assistantHandlers{deps: &deps{repo: st}}
 	task := assistantTask{ID: "turn-job", Name: "巡检", Prompt: "检查", ProjectID: "turn-project", IntervalSec: 60, Enabled: true}
@@ -199,7 +204,7 @@ func TestScheduledTaskRunsAsChatTurn(t *testing.T) {
 func TestScheduledTaskStopFromPage(t *testing.T) {
 	st := cvAStore(t)
 	_ = st.PutProject(domain.Project{ID: "stop-project", Name: "Stop"})
-	_ = st.PutUser(domain.User{LoginName: "stop-user", CodeBuddyAPIKey: "secret"})
+	_ = st.PutUser(testOpenCode(domain.User{LoginName: "stop-user", CodeBuddyAPIKey: "secret"}))
 	user, _ := st.UserByLoginName("stop-user")
 	h := &assistantHandlers{deps: &deps{repo: st}}
 	task := assistantTask{ID: "stop-job", Name: "巡检", Prompt: "检查", ProjectID: "stop-project", IntervalSec: 60, Enabled: true}

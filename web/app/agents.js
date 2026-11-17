@@ -131,7 +131,7 @@ async function loadExecutorModelCatalogs(){
   return executorModelCatalogs();
 }
 function agentModelAPI(){return window.AgentFlowAssistantModels}
-function currentAgentExecutorId(){return $('#agentForm')?.elements?.executorId?.value||'codebuddy'}
+function currentAgentExecutorId(){return $('#agentForm')?.elements?.executorId?.value||'opencode'}
 function agentModelItems(executorId,current){
   const cat=executorModelCatalogs()[executorId]||{},items=(cat.models||[]).slice();
   if(current&&current!==AGENT_CUSTOM_MODEL&&!items.some(m=>m.id===current))items.push({id:current,name:`${current}（历史模型）`,family:'other'});
@@ -234,8 +234,8 @@ function selectAgent(a,rerender=true){
   const f=$('#agentForm');
   ['id','name','description'].forEach(k=>{if(f.elements[k])f.elements[k].value=a[k]||''});
   if(f.elements.shared)f.elements.shared.checked=!!a.shared;
-  if(f.elements.executorId)f.elements.executorId.innerHTML=executorOptions(a.executorId||'codebuddy');
-  const paintAgentModel=()=>applyAgentModelUI(a.executorId||f.elements.executorId?.value||'codebuddy',a.model||'',a.effort||'');
+  if(f.elements.executorId)f.elements.executorId.innerHTML=executorOptions(a.executorId||'opencode');
+  const paintAgentModel=()=>applyAgentModelUI(a.executorId||f.elements.executorId?.value||'opencode',a.model||'',a.effort||'');
   paintAgentModel();loadExecutorModelCatalogs().then(paintAgentModel).catch(()=>{});
   if(f.elements.id)f.elements.id.readOnly=!!a.id;
   renderAgentPresets();renderAgentTaskBook(a);renderAgentGovernance(a);renderAgentAssetsPanel(a);renderAgentSummary();

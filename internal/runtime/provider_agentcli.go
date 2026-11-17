@@ -122,15 +122,17 @@ func AgentCLICommand(kind string, o AgentCLICommandOptions) CommandSpec {
 	options := AgentCLIOptions{Model: model, ReadOnly: readOnly}
 	switch kind {
 	case AgentCLIOpenCode:
-		argv = []string{binary, "run", "--format", "json", "--thinking"}
+		argv = []string{binary, "run", "--standalone", "--auto", "--format", "json", "--thinking"}
 		if model != "" {
-			argv = append(argv, "-m", "agentflow/"+model)
+			ref := "agentflow/" + model
+			if effort != "" {
+				// OpenCode 2 selects reasoning effort through a model variant.
+				ref += "#" + effort
+			}
+			argv = append(argv, "-m", ref)
 		}
 		if resume != "" {
 			argv = append(argv, "-s", resume)
-		}
-		if effort != "" {
-			argv = append(argv, "--variant", effort)
 		}
 		options.SystemPromptFile = o.SystemPromptFile
 		argv = append(append(argv, extra...), prompt)

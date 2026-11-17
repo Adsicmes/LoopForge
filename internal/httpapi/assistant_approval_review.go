@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"agentflow/internal/domain"
+	"agentflow/internal/runtime"
 )
 
 // Adapted to platform/workspace operations from openai/codex's Guardian:
@@ -139,13 +140,13 @@ func approvalReviewInput(req assistantRequest, user domain.User) assistantApprov
 
 func (h *assistantHandlers) approvalReviewer(req assistantRequest, user domain.User, notify func(assistantStreamEvent)) assistantApprovalReviewer {
 	input := approvalReviewInput(req, user)
-	var catalog assistantModelCatalog
-	if h.reviewCatalog != nil {
-		catalog = h.reviewCatalog(user.CodeBuddyInternetEnvironment)
-	} else {
-		catalog = h.chatCatalog(context.Background(), user)
+	user = h.assistantOpenCodeUser(user)
+	var models []string
+	for _, item := range assistantEngineModels(context.Background(), user) {
+		if item.Engine == runtime.AgentCLIOpenCode {
+			models = append(models, item.ID)
+		}
 	}
-	models := assistantApprovalReviewModels(catalog)
 	var modelMu sync.Mutex
 	primaryUnavailable := false
 	return func(ctx context.Context, tool, description string, args map[string]any) assistantApprovalReview {
@@ -205,7 +206,11 @@ func (h *assistantHandlers) approvalReviewer(req assistantRequest, user domain.U
 }
 
 func runAssistantApprovalReview(ctx context.Context, input assistantApprovalInput, user domain.User, model string) (assistantApprovalReview, error) {
-	if model == "" || strings.TrimSpace(user.CodeBuddyAPIKey) == "" {
+	engine, _ := assistantModelEngine(model)
+	if model == "" {
+		return assistantApprovalReview{}, fmt.Errorf("review model or credential unavailable")
+	}
+	if key, _ := assistantEngineCredential(user, engine); strings.TrimSpace(key) == "" {
 		return assistantApprovalReview{}, fmt.Errorf("review model or credential unavailable")
 	}
 	root, err := os.MkdirTemp("", "agentflow-approval-review-")

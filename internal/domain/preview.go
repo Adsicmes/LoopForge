@@ -35,7 +35,7 @@ const (
 
 	PreviewBuildNodeID     = "af-preview-build"
 	PreviewBuildAgentID    = "af-preview-builder"
-	PreviewBuildExecutor   = "codebuddy"
+	PreviewBuildExecutor   = "opencode"
 	PreviewDefaultModel    = "default"
 	PreviewDefaultSource   = "dist"
 	PreviewBuildEdgeID     = "af-preview-build-edge"
@@ -43,14 +43,14 @@ const (
 )
 
 // PreviewContract is the run-level delivery contract frozen into
-// WorkflowSnapshot. Enabling it injects a CodeBuddy build node. The static
+// WorkflowSnapshot. Enabling it injects an OpenCode build node. The static
 // site is archived when that node succeeds, so a later confirmation can open
 // the preview before the run itself finishes.
 type PreviewContract struct {
 	Enabled      bool   `json:"enabled"`
 	Kind         string `json:"kind"`                 // static; later service/environment
-	ExecutorID   string `json:"executorId,omitempty"` // currently only codebuddy
-	Model        string `json:"model,omitempty"`      // CodeBuddy model id
+	ExecutorID   string `json:"executorId,omitempty"` // OpenCode; legacy values include codebuddy
+	Model        string `json:"model,omitempty"`      // OpenCode model id (an opencode: prefix is stripped)
 	SourcePath   string `json:"sourcePath,omitempty"` // relative to the run workspace; default dist
 	IndexFile    string `json:"indexFile,omitempty"`  // default index.html
 	SPAFallback  bool   `json:"spaFallback,omitempty"`
@@ -95,7 +95,7 @@ func (c *PreviewContract) SourceOrDist() string {
 	return PreviewDefaultSource
 }
 
-func (c *PreviewContract) ExecutorOrCodeBuddy() string {
+func (c *PreviewContract) ExecutorOrDefault() string {
 	if c == nil {
 		return PreviewBuildExecutor
 	}
@@ -109,7 +109,11 @@ func (c *PreviewContract) ModelOrDefault() string {
 	if c == nil {
 		return PreviewDefaultModel
 	}
-	if model := strings.TrimSpace(c.Model); model != "" {
+	model := strings.TrimSpace(c.Model)
+	if rest, ok := strings.CutPrefix(model, PreviewBuildExecutor+":"); ok {
+		model = strings.TrimSpace(rest)
+	}
+	if model != "" {
 		return model
 	}
 	return PreviewDefaultModel
@@ -135,8 +139,16 @@ func (c *PreviewContract) Normalize() {
 		return
 	}
 	c.Kind = c.KindOrStatic()
-	c.ExecutorID = c.ExecutorOrCodeBuddy()
-	c.Model = c.ModelOrDefault()
+	// A preview contract frozen before the OpenCode switch names CodeBuddy and
+	// one of its models. Keep the contract, but run the build on OpenCode's
+	// credential-resolved default instead of sending a CodeBuddy model to it.
+	legacyExecutor := strings.EqualFold(strings.TrimSpace(c.ExecutorID), "codebuddy")
+	c.ExecutorID = c.ExecutorOrDefault()
+	if legacyExecutor {
+		c.Model = PreviewDefaultModel
+	} else {
+		c.Model = c.ModelOrDefault()
+	}
 	c.SourcePath = c.SourceOrDist()
 	c.IndexFile = c.Index()
 	if c.RetentionSec <= 0 || c.RetentionSec > PreviewMaxRetentionSec {
@@ -152,11 +164,11 @@ func (c *PreviewContract) Validate() error {
 	if !c.Static() {
 		return fmt.Errorf("frontend preview currently supports static sites only")
 	}
-	if !strings.EqualFold(c.ExecutorID, PreviewBuildExecutor) {
-		return fmt.Errorf("frontend preview currently supports CodeBuddy CLI only")
+	if !strings.EqualFold(c.ExecutorID, PreviewBuildExecutor) && !strings.EqualFold(c.ExecutorID, "codebuddy") {
+		return fmt.Errorf("frontend preview currently supports the OpenCode CLI only")
 	}
 	if strings.TrimSpace(c.Model) == "" {
-		return fmt.Errorf("frontend preview requires a CodeBuddy model")
+		return fmt.Errorf("frontend preview requires an OpenCode model")
 	}
 	if strings.Contains(c.SourcePath, "..") || strings.HasPrefix(c.SourcePath, "/") {
 		return fmt.Errorf("frontend preview sourcePath %q is invalid", c.SourcePath)

@@ -128,7 +128,8 @@ raise SystemExit(1)
 		t.Fatal(err)
 	}
 	t.Setenv("AGENTFLOW_CODEBUDDY_BIN", bin)
-	task := assistantTask{ID: "native-scheduled", Name: "Native schedule", ProjectID: "workbench", Prompt: "巡检并生成报告"}
+	t.Setenv("AGENTFLOW_ASSISTANT_MODEL", "deepseek-v4.1-flash")
+	task := assistantTask{ID: "native-scheduled", Name: "Native schedule", ProjectID: "workbench", Prompt: "巡检并生成报告", Model: "deepseek-v4.1-flash"}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	if err := h.executeAssistantTask(ctx, user, &task); err != nil {

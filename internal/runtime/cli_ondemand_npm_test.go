@@ -10,8 +10,8 @@ import (
 
 func TestNPMCLIInstallArgs(t *testing.T) {
 	base := []string{"install", "--prefix", "/stage", "--no-audit", "--no-fund", "--omit=dev", "--save-exact"}
-	strict := npmCLIInstallArgs("/stage", onDemandCLI{Package: "opencode-ai@1.0.0"})
-	if want := append(append([]string{}, base...), "--engine-strict", "opencode-ai@1.0.0"); !reflect.DeepEqual(strict, want) {
+	strict := npmCLIInstallArgs("/stage", onDemandCLI{Package: "@opencode/cli@" + OpenCodeVersion})
+	if want := append(append([]string{}, base...), "--engine-strict", "@opencode/cli@"+OpenCodeVersion); !reflect.DeepEqual(strict, want) {
 		t.Fatalf("strict args = %v, want %v", strict, want)
 	}
 	relaxed := npmCLIInstallArgs("/stage", onDemandCLI{Package: "dsh@2", RelaxEngines: true})

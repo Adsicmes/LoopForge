@@ -286,7 +286,7 @@ func TestDetectRuntimesReportsAgentCLIs(t *testing.T) {
 		t.Fatal(err)
 	}
 	tool := filepath.Join(bin, "opencode")
-	if err := os.WriteFile(tool, []byte("#!/bin/sh\nprintf 'opencode 1.0\\n'\n"), 0o755); err != nil {
+	if err := os.WriteFile(tool, []byte("#!/bin/sh\nprintf 'opencode 2.3.0\\n'\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin)
@@ -297,6 +297,30 @@ func TestDetectRuntimesReportsAgentCLIs(t *testing.T) {
 		}
 	}
 	t.Fatalf("opencode not detected: %+v", runtimes)
+}
+
+func TestDetectRuntimesRejectsOpenCodeV1(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	bin := filepath.Join(home, "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	tool := filepath.Join(bin, "opencode")
+	if err := os.WriteFile(tool, []byte("#!/bin/sh\nprintf 'opencode 1.4.0\\n'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+	runtimes := DetectRuntimes(context.Background(), nil)
+	for _, rt := range runtimes {
+		if rt.Provider == "opencode" {
+			if rt.Status != domain.RuntimeStatusOffline || !strings.Contains(strings.Join(rt.Capabilities, ","), "upgrade_required") {
+				t.Fatalf("v1 opencode must be offline: %+v", rt)
+			}
+			return
+		}
+	}
+	t.Fatalf("v1 opencode not reported: %+v", runtimes)
 }
 
 func TestDetectionProviderAndDaemonBasics(t *testing.T) {

@@ -7,6 +7,7 @@ import (
 )
 
 func TestHasRunEvent(t *testing.T) {
+	const sponsoredRunEvent = "model.sponsored"
 	cases := []struct {
 		name   string
 		events []domain.RunEvent

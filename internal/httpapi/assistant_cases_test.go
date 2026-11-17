@@ -115,7 +115,7 @@ func TestAssistantTaskValidationPersistenceAndDue(t *testing.T) {
 func TestAssistantTaskHandlersAndExecution(t *testing.T) {
 	st := cvAStore(t)
 	_ = st.PutProject(domain.Project{ID: "task-project", Name: "Task Project"})
-	_ = st.PutUser(domain.User{LoginName: "task-user", CodeBuddyAPIKey: "secret"})
+	_ = st.PutUser(testOpenCode(domain.User{LoginName: "task-user", CodeBuddyAPIKey: "secret"}))
 	user, _ := st.UserByLoginName("task-user")
 	h := &assistantHandlers{deps: &deps{repo: st}}
 
@@ -158,11 +158,14 @@ func TestAssistantTaskHandlersAndExecution(t *testing.T) {
 	}
 	_ = st.PutUser(domain.User{LoginName: "task-no-key"})
 	noKeyUser, _ := st.UserByLoginName("task-no-key")
-	c, rec = cvAContext(t, http.MethodPost, "/api/assistant/tasks/job1/run", "", &noKeyUser)
-	c.Params = gin.Params{{Key: "id", Value: "job1"}}
+	if err := saveAssistantTask(st, noKeyUser.ID, assistantTask{ID: "no-key-job", Name: "job", Prompt: "do it", ProjectID: "task-project", IntervalSec: 60, Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	c, rec = cvAContext(t, http.MethodPost, "/api/assistant/tasks/no-key-job/run", "", &noKeyUser)
+	c.Params = gin.Params{{Key: "id", Value: "no-key-job"}}
 	h.runTaskNow(c)
 	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("missing key run now = %d", rec.Code)
+		t.Fatalf("missing key run now = %d %s", rec.Code, rec.Body.String())
 	}
 	h.startTaskTicker()
 	var nilHandler *assistantHandlers
@@ -190,11 +193,6 @@ func TestAssistantTaskHandlersAndExecution(t *testing.T) {
 	h.generate = func(context.Context, string, domain.User) (string, error) { return "", errors.New("upstream") }
 	if err := h.executeAssistantTask(context.Background(), user, &task); err == nil || task.LastStatus != "error" {
 		t.Fatalf("generation failure = %v %+v", err, task)
-	}
-	noKey := user
-	noKey.CodeBuddyAPIKey = ""
-	if err := h.executeAssistantTask(context.Background(), noKey, &task); err == nil || !strings.Contains(task.LastError, "API Key") {
-		t.Fatalf("missing key = %v %+v", err, task)
 	}
 }
 

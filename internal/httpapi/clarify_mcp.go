@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"agentflow/internal/domain"
+	"agentflow/internal/runtime"
 	"agentflow/internal/tracker"
 )
 
@@ -27,16 +28,17 @@ func clarifyAllowedModel(id string) string {
 	return assistantAllowedModel(id, assistantKnownCatalog())
 }
 
-// errClarifyNeedsCodeBuddy is returned when a clarification asks for a model of
-// another CLI: clarification runs on CodeBuddy only, so a "codex:…" id must be
-// refused instead of being swapped for the CodeBuddy default.
-var errClarifyNeedsCodeBuddy = errors.New("需求澄清目前只支持 CodeBuddy 模型，请在模型列表中改选 CodeBuddy 模型")
+// errClarifyNeedsSupportedCLI is returned when a clarification asks for a
+// model of a CLI it cannot run. CodeBuddy and OpenCode are supported; a
+// "codex:…" id must be refused instead of being swapped for a default.
+var errClarifyNeedsSupportedCLI = errors.New("需求澄清目前只支持 CodeBuddy 或 OpenCode 模型，请在模型列表中改选")
 
 // clarifyModelEngineError reports whether id names a model of a CLI that
 // requirement clarification cannot run.
 func clarifyModelEngineError(id string) error {
-	if engine, _ := assistantModelEngine(id); engine != assistantEngineCodeBuddy {
-		return errClarifyNeedsCodeBuddy
+	engine, _ := assistantModelEngine(id)
+	if engine != assistantEngineCodeBuddy && engine != runtime.AgentCLIOpenCode {
+		return errClarifyNeedsSupportedCLI
 	}
 	return nil
 }

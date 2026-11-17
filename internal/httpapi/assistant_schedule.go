@@ -57,13 +57,23 @@ func (h *assistantHandlers) prepareScheduleJob(job domain.ScheduleJob) (string, 
 // they need. A scheduled run does not borrow the platform shared CodeBuddy key.
 func (h *assistantHandlers) scheduleJobAssistantUser(job domain.ScheduleJob, model string) (domain.User, error) {
 	engine, _ := assistantModelEngine(model)
+	if strings.TrimSpace(model) == "" {
+		engine = assistantEngineOpenCode
+	}
 	try := func(id int64) (domain.User, bool) {
 		if id == 0 || h.repo == nil {
 			return domain.User{}, false
 		}
 		user, ok := h.repo.User(id)
+		if !ok {
+			return domain.User{}, false
+		}
+		if engine == assistantEngineOpenCode {
+			_, credentialOK := openCodeProviderCredential(h.repo, id)
+			return user, credentialOK
+		}
 		key, _ := assistantEngineCredential(user, engine)
-		return user, ok && key != ""
+		return user, key != ""
 	}
 	if project, ok := h.repo.Project(job.ProjectID); ok {
 		if user, ok := try(project.OwnerID); ok {
@@ -75,5 +85,5 @@ func (h *assistantHandlers) scheduleJobAssistantUser(job domain.ScheduleJob, mod
 			return user, nil
 		}
 	}
-	return domain.User{}, fmt.Errorf("执行提示词需要项目 Owner 的 %s API Key：请在该账号的个人配置中配置", assistantEngineLabel(engine))
+	return domain.User{}, fmt.Errorf("执行提示词需要项目 Owner 的 %s API Key：请在该账号的个人配置中配置，或让管理员配置平台共享 Key", assistantEngineLabel(engine))
 }

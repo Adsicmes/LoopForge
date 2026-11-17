@@ -244,6 +244,20 @@ func errorText(value any) string {
 	return ""
 }
 
+// openCodeToolName maps OpenCode's `<server>_<tool>` MCP naming back to the
+// platform's `mcp__<server>__<tool>` form. The platform's own gateway is the
+// one name the chat pipeline must recognize to end a turn on submit.
+func openCodeToolName(name string) string {
+	name = strings.TrimSpace(name)
+	if strings.HasPrefix(name, "mcp__") {
+		return name
+	}
+	if strings.HasPrefix(name, "agentflow_session_") {
+		return "mcp__agentflow_session__" + strings.TrimPrefix(name, "agentflow_session_")
+	}
+	return name
+}
+
 // openCodeStream: `opencode run --format json` reports finished parts.
 type openCodeStream struct {
 	started bool
@@ -266,8 +280,12 @@ func (o *openCodeStream) translate(s *ClaudeStream, raw map[string]any) []string
 		out = append(out, s.Text(stringValue(part["text"]))...)
 	case "tool_use":
 		state, _ := part["state"].(map[string]any)
-		id := stringValue(part["callID"])
-		out = append(out, s.ToolUse(id, stringValue(part["tool"]), state["input"])...)
+		// OpenCode 2 names the tool call `id`; v1 used `callID`.
+		id := stringValue(part["id"])
+		if id == "" {
+			id = stringValue(part["callID"])
+		}
+		out = append(out, s.ToolUse(id, openCodeToolName(stringValue(part["tool"])), state["input"])...)
 		switch stringValue(state["status"]) {
 		case "completed":
 			out = append(out, s.ToolResult(id, false, jsonText(state["output"]))...)

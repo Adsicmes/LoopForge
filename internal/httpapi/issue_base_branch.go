@@ -164,4 +164,5 @@ func (h issuesHandlers) invalidateIssueClarifySessionOnRepositoryChange(issue *d
 	}
 	issue.Clarification.SessionID = ""
 	issue.Clarification.SessionUserID = 0
+	issue.Clarification.SessionEngineVersion = 0
 }

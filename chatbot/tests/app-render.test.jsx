@@ -417,6 +417,10 @@ describe("App", () => {
       sessions: [],
       projectId: "",
       sponsoredModel: "",
+      executors: [
+        { id: "codebuddy", icon: "sparkles", label: "CodeBuddy", detail: "CodeBuddy", configured: false, credential: "codeBuddyApiKey" },
+        { id: "codex", icon: "terminal", label: "Codex", detail: "Codex", configured: true, credential: "codexApiKey" },
+      ],
       local: false,
       busy: false,
       generation: null,
@@ -424,7 +428,7 @@ describe("App", () => {
       error: "",
     });
     const view = render(<App />);
-    expect(screen.getByText(/当前执行器 CodeBuddy 需要先配置 CodeBuddy API Key/)).toBeInTheDocument();
+    expect(screen.getByText(/当前执行器 CodeBuddy 需要先配置 API Key/)).toBeInTheDocument();
     expect(screen.getByText(/也可以在输入框下方把执行器切换过去/)).toBeInTheDocument();
     chat.executor = "codex";
     view.rerender(<App />);

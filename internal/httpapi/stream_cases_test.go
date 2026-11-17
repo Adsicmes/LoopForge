@@ -409,7 +409,7 @@ func TestStreamExecuteWithMixedRepositoryAvailability(t *testing.T) {
 		events = append(events, event)
 		mu.Unlock()
 	}
-	request := chatClarifyRequest{}
+	request := chatClarifyRequest{Model: "deepseek-v4.1-flash"}
 	request.History = append(request.History, struct {
 		Role    string `json:"role"`
 		Content string `json:"content"`
@@ -436,7 +436,7 @@ func TestStreamExecuteEarlyErrorsAndMultiRepositoryPrompt(t *testing.T) {
 	h := &streamHandlers{deps: &deps{repo: st}}
 	if _, _, _, err := h.executeClarify(context.Background(), domain.Issue{
 		ProjectID: "platform", AssigneeUserID: 999999,
-	}, chatClarifyRequest{}, nil); err == nil {
+	}, chatClarifyRequest{Model: "deepseek-v4.1-flash"}, nil); err == nil {
 		t.Fatal("invalid responsible user unexpectedly succeeded")
 	}
 
@@ -446,7 +446,7 @@ func TestStreamExecuteEarlyErrorsAndMultiRepositoryPrompt(t *testing.T) {
 	t.Setenv("AGENTFLOW_MANAGED_CLI_ROOT", filepath.Join(root, "missing-inventory"))
 	if _, _, _, err := h.executeClarify(context.Background(), domain.Issue{
 		ProjectID: "platform", AssigneeUserID: user.ID, Kind: "issue", Title: "bug", Description: "broken",
-	}, chatClarifyRequest{}, nil); err == nil {
+	}, chatClarifyRequest{Model: "deepseek-v4.1-flash"}, nil); err == nil {
 		t.Fatal("missing managed inventory unexpectedly succeeded")
 	}
 	t.Setenv("AGENTFLOW_MANAGED_CLI_ROOT", "")
@@ -471,7 +471,7 @@ func TestStreamExecuteEarlyErrorsAndMultiRepositoryPrompt(t *testing.T) {
 		ProjectID: "platform", AssigneeUserID: user.ID, Kind: "issue", Title: "bug", Description: "broken",
 		RepositoryIDs: []string{"cvb-multi-a", "cvb-multi-b", "cvb-multi-missing"},
 	}
-	if parsed, _, _, err := h.executeClarify(context.Background(), issue, chatClarifyRequest{}, nil); err != nil || parsed == nil {
+	if parsed, _, _, err := h.executeClarify(context.Background(), issue, chatClarifyRequest{Model: "deepseek-v4.1-flash"}, nil); err != nil || parsed == nil {
 		t.Fatalf("multi repository clarify = %#v, %v", parsed, err)
 	}
 }
@@ -497,7 +497,7 @@ func TestStreamExecuteDirectorySessionAndTerminalErrors(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("AGENTFLOW_CLARIFY_SESSION_DIR", blockedBase)
-	if _, _, _, err := h.executeClarify(context.Background(), issue, chatClarifyRequest{}, nil); err == nil {
+	if _, _, _, err := h.executeClarify(context.Background(), issue, chatClarifyRequest{Model: "deepseek-v4.1-flash"}, nil); err == nil {
 		t.Fatal("blocked session base unexpectedly succeeded")
 	}
 
@@ -510,7 +510,7 @@ func TestStreamExecuteDirectorySessionAndTerminalErrors(t *testing.T) {
 	if err := os.WriteFile(mcpSessions, []byte("file"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, _, err := h.executeClarify(context.Background(), issue, chatClarifyRequest{}, nil); err == nil {
+	if _, _, _, err := h.executeClarify(context.Background(), issue, chatClarifyRequest{Model: "deepseek-v4.1-flash"}, nil); err == nil {
 		t.Fatal("blocked MCP session directory unexpectedly succeeded")
 	}
 
@@ -522,7 +522,7 @@ func TestStreamExecuteDirectorySessionAndTerminalErrors(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("AGENTFLOW_CODEBUDDY_BIN", bin)
-	if _, _, _, err := h.executeClarify(context.Background(), issue, chatClarifyRequest{}, nil); err == nil {
+	if _, _, _, err := h.executeClarify(context.Background(), issue, chatClarifyRequest{Model: "deepseek-v4.1-flash"}, nil); err == nil {
 		t.Fatal("missing terminal clarification unexpectedly succeeded")
 	}
 
@@ -545,7 +545,7 @@ func TestStreamExecuteDirectorySessionAndTerminalErrors(t *testing.T) {
 	if err := os.WriteFile(blockedWorkspace, []byte("file"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	_, _, _, _ = h.executeClarify(context.Background(), blockedWorkspaceIssue, chatClarifyRequest{}, nil)
+	_, _, _, _ = h.executeClarify(context.Background(), blockedWorkspaceIssue, chatClarifyRequest{Model: "deepseek-v4.1-flash"}, nil)
 
 	blockedEmptyIssue := issue
 	blockedEmptyIssue.ID = "cvb-blocked-empty"
@@ -556,17 +556,17 @@ func TestStreamExecuteDirectorySessionAndTerminalErrors(t *testing.T) {
 	if err := os.WriteFile(blockedEmpty, []byte("file"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	_, _, _, _ = h.executeClarify(context.Background(), blockedEmptyIssue, chatClarifyRequest{}, nil)
+	_, _, _, _ = h.executeClarify(context.Background(), blockedEmptyIssue, chatClarifyRequest{Model: "deepseek-v4.1-flash"}, nil)
 
 	if err := os.WriteFile(bin, []byte("#!/bin/sh\nexit 9\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, _, err := h.executeClarify(context.Background(), issue, chatClarifyRequest{}, nil); err == nil {
+	if _, _, _, err := h.executeClarify(context.Background(), issue, chatClarifyRequest{Model: "deepseek-v4.1-flash"}, nil); err == nil {
 		t.Fatal("failed clarify command unexpectedly succeeded")
 	}
 
 	var nilHandler *streamHandlers
-	nilHandler.rememberClarifySession("issue", "session", user.ID)
+	nilHandler.rememberClarifySession("issue", "session", user.ID, 0)
 }
 
 func TestStreamRunClarifyTurnOutputAndFailure(t *testing.T) {

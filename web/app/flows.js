@@ -23,7 +23,7 @@ function workflowPreviewModel(wf){
 function previewModelChoices(){
   const api=window.AgentFlowAssistantModels;
   // The preview build node runs on CodeBuddy (executorId codebuddy).
-  const models=api?.codeBuddyModels?.()||api?.catalog?.()?.models;
+  const models=api?.modelsForEngine?.(api.PRIMARY||'opencode')||api?.catalog?.()?.models;
   if(models&&models.length)return models.map(m=>({id:m.id,name:m.name||m.id}));
   return PREVIEW_MODEL_FALLBACK.slice();
 }
@@ -38,12 +38,12 @@ function ensurePreviewContract(){
   const wf=state.workflow;if(!wf)return null;
   const prev=workflowPreviewContract(wf)||{};
   const api=window.AgentFlowAssistantModels;
-  const model=(prev.model&&String(prev.model).trim())||(api&&api.DEFAULT)||'default';
+  const model=(prev.model&&String(prev.model).trim())||(api?.defaultModelFor?.(api.PRIMARY||'opencode'))||'default';
   wf.preview={
     ...prev,
     enabled:true,
     kind:'static',
-    executorId:'codebuddy',
+    executorId:prev.executorId||'opencode',
     model,
     sourcePath:prev.sourcePath||'dist',
     indexFile:prev.indexFile||'index.html',
@@ -81,7 +81,7 @@ function syncPreviewBuildGraph(){
     name:'构建静态站点',
     type:'agent',
     agentId:PREVIEW_BUILD_AGENT_ID,
-    executorId:'codebuddy',
+    executorId:'opencode',
     executionScope:'run',
     onFailure:'fail',
     retryStrategy:'targeted_fix',
@@ -196,7 +196,7 @@ function addNode(type,opts={}){
     if(existing){state.selectedNode=existing.id;renderCanvas();renderProperties();return toast('预览节点已存在，可拖拽连线调整它的位置')}
     flowHistory.record();
     ensurePreviewContract();
-    state.workflow.nodes.push({id:PREVIEW_BUILD_NODE_ID,name:'构建静态站点',type:'agent',agentId:PREVIEW_BUILD_AGENT_ID,executorId:'codebuddy',executionScope:'run',onFailure:'fail',retryStrategy:'targeted_fix',maxAttempts:2,maxReworks:1,position:at,artifactOutputs:[{name:'frontend-preview',path:'dist/index.html',required:true}]});
+    state.workflow.nodes.push({id:PREVIEW_BUILD_NODE_ID,name:'构建静态站点',type:'agent',agentId:PREVIEW_BUILD_AGENT_ID,executorId:'opencode',executionScope:'run',onFailure:'fail',retryStrategy:'targeted_fix',maxAttempts:2,maxReworks:1,position:at,artifactOutputs:[{name:'frontend-preview',path:'dist/index.html',required:true}]});
     state.selectedNode=PREVIEW_BUILD_NODE_ID;
     dirty();renderCanvas();renderProperties();
     return;

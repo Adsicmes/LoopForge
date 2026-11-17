@@ -24,19 +24,29 @@ import (
 	"agentflow/internal/runtime"
 )
 
-// AI 对话 runs on CodeBuddy by default. A model ID prefixed with another CLI
-// ("codex:", "claude-code:" or an agent CLI kind such as "opencode:") runs the
-// turn on that CLI with the caller's own key and Base URL from 个人配置; the
-// part after the prefix is passed to the CLI as-is.
+// AI 对话's primary executor is OpenCode. Bare model IDs keep their historical
+// CodeBuddy meaning, so legacy requests and saved sessions continue to work;
+// a model ID prefixed with another CLI ("codex:", "claude-code:" or
+// "opencode:") runs the turn on that CLI with the caller's credential from
+// 个人配置 (or the platform-shared OpenCode credential); the part after the
+// prefix is passed to the CLI as-is.
 const (
 	assistantEngineCodeBuddy = "codebuddy"
+	assistantEngineOpenCode  = "opencode"
 	assistantEngineCodex     = "codex"
 	assistantEngineClaude    = "claude-code"
 )
 
 // assistantCLIEngines are the CLIs other than CodeBuddy, in switch order.
+// OpenCode is first because it is the platform's primary executor.
 func assistantCLIEngines() []string {
-	return append([]string{assistantEngineCodex, assistantEngineClaude}, runtime.AgentCLIKinds...)
+	out := []string{runtime.AgentCLIOpenCode, assistantEngineCodex, assistantEngineClaude}
+	for _, kind := range runtime.AgentCLIKinds {
+		if kind != runtime.AgentCLIOpenCode {
+			out = append(out, kind)
+		}
+	}
+	return out
 }
 
 func assistantModelEngine(id string) (engine, model string) {
@@ -56,6 +66,9 @@ type assistantEngineOption struct {
 	Name       string `json:"name"`
 	Configured bool   `json:"configured"`
 	Credential string `json:"credential"`
+	// Shared is true when this CLI runs on the platform's shared credential
+	// because the user has no key of their own.
+	Shared bool `json:"shared,omitempty"`
 }
 
 // assistantEngineCredentialField is the 个人配置 field that enables a CLI.
@@ -72,18 +85,25 @@ func assistantEngineCredentialField(engine string) string {
 }
 
 // assistantEngineOptions lists every CLI, configured or not, so the switch
-// also shows where to add a key. CodeBuddy counts as configured when the
-// platform sponsors chats without one.
-func assistantEngineOptions(user domain.User, sponsored bool) []assistantEngineOption {
-	engines := append([]string{assistantEngineCodeBuddy}, assistantCLIEngines()...)
+// also shows where to add a key. OpenCode counts as configured when the
+// platform shares a credential the user may borrow.
+func assistantEngineOptions(user domain.User, openCodeShared bool) []assistantEngineOption {
+	engines := []string{runtime.AgentCLIOpenCode, assistantEngineCodeBuddy}
+	for _, engine := range assistantCLIEngines() {
+		if engine != runtime.AgentCLIOpenCode {
+			engines = append(engines, engine)
+		}
+	}
 	out := make([]assistantEngineOption, 0, len(engines))
 	for _, engine := range engines {
 		key, _ := assistantEngineCredential(user, engine)
+		shared := engine == runtime.AgentCLIOpenCode && openCodeShared
 		out = append(out, assistantEngineOption{
 			ID:         engine,
 			Name:       assistantEngineLabel(engine),
-			Configured: key != "" || (engine == assistantEngineCodeBuddy && sponsored),
+			Configured: key != "" || shared,
 			Credential: assistantEngineCredentialField(engine),
+			Shared:     shared,
 		})
 	}
 	return out
@@ -163,7 +183,7 @@ func assistantValidEngineModel(model string) bool {
 		return false
 	}
 	for _, r := range model {
-		if r <= ' ' || r == 0x7f || r == '"' || r == '\'' || r == '`' || r == '\\' {
+		if r <= ' ' || r == 0x7f || r == '"' || r == '\'' || r == '`' || r == '\\' || r == '#' {
 			return false
 		}
 	}
@@ -245,11 +265,35 @@ func assistantEngineMissingKey(engine string) string {
 
 // assistantTurnUser resolves the identity and model of one chat turn. Codex
 // and Claude Code models need the caller's own key for that CLI and are never
-// sponsored; CodeBuddy models keep the sponsor fallback. The returned user
-// still carries a lent CodeBuddy key when there is one, so approval reviews
-// keep working on Codex / Claude Code turns.
+// sponsored. OpenCode prefers the caller's key and otherwise borrows the
+// platform-shared credential within its allowed models. CodeBuddy now needs
+// the caller's own key too; the platform no longer lends one.
 func (h *assistantHandlers) assistantTurnUser(stored domain.User, model string) (domain.User, string, string) {
-	engine, _ := assistantModelEngine(model)
+	engine, engineModel := assistantModelEngine(model)
+	if engine == runtime.AgentCLIOpenCode {
+		if key, _ := assistantEngineCredential(stored, engine); key != "" {
+			if engineModel == "" || engineModel == "default" {
+				if models := stored.AgentCLICredentials[runtime.AgentCLIOpenCode].Models; len(models) > 0 {
+					return stored, runtime.AgentCLIOpenCode + ":" + models[0].ID, ""
+				}
+				return stored, "", "OpenCode 需要指定模型：请在模型列表里选择一个具体模型"
+			}
+			return stored, model, ""
+		}
+		shared, ok := h.assistantSharedOpenCode()
+		if !ok {
+			return stored, "", "请先在个人配置中配置自己的 OpenCode API Key，或让管理员配置平台共享 Key"
+		}
+		requested := engineModel
+		if requested == "default" {
+			requested = ""
+		}
+		forced, allowed := shared.Model(requested)
+		if !allowed {
+			return stored, "", errAssistantOpenCodeSponsoredModel(shared.Models)
+		}
+		return h.assistantOpenCodeUser(stored), runtime.AgentCLIOpenCode + ":" + forced, ""
+	}
 	if engine != assistantEngineCodeBuddy {
 		if key, _ := assistantEngineCredential(stored, engine); key == "" {
 			return stored, "", assistantEngineMissingKey(engine)
@@ -257,16 +301,9 @@ func (h *assistantHandlers) assistantTurnUser(stored domain.User, model string) 
 		user, _, _ := h.assistantChatUser(stored)
 		return user, model, ""
 	}
-	user, shared, ok := h.assistantChatUser(stored)
+	user, _, ok := h.assistantChatUser(stored)
 	if !ok {
 		return stored, "", "请先在个人配置中配置自己的 CodeBuddy API Key"
-	}
-	if len(shared) > 0 {
-		forced, allowed := assistantSponsoredModelFor(shared, model)
-		if !allowed {
-			return stored, "", errAssistantSponsoredModel(shared)
-		}
-		model = forced
 	}
 	return user, model, ""
 }

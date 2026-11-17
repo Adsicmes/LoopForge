@@ -31,8 +31,7 @@ func clarifyCLIHome(userID int64) string {
 
 // Older assessments have no owner metadata. Only resume those when the
 // conversation actually exists inside the current responsible user's HOME.
-func canResumeClarifySession(homeDir, sessionID string, sessionUserID, userID int64) bool {
-	if sessionUserID != 0 && sessionUserID != userID {
+func canResumeClarifySession(homeDir, sessionID string, sessionUserID, userID int64) bool {	if sessionUserID != 0 && sessionUserID != userID {
 		return false
 	}
 	if sessionID == "" || strings.ContainsAny(sessionID, `/\\*?[]`) || sessionID == "." || sessionID == ".." {
@@ -48,6 +47,32 @@ func canResumeClarifySession(homeDir, sessionID string, sessionUserID, userID in
 		}
 	}
 	return false
+}
+
+// clarifySessionVersion returns the CLI schema version that owns a
+// clarification native session. CodeBuddy has not changed schema; OpenCode 2
+// is incompatible with v1 sessions.
+func clarifySessionVersion(engine string) int {
+	if engine == runtime.AgentCLIOpenCode {
+		return 2
+	}
+	return 0
+}
+
+// canResumeClarification reports whether a stored native session may be
+// resumed: the same owner, an existing conversation for CodeBuddy, and a
+// matching CLI schema version.
+func canResumeClarification(homeDir, sessionID string, issue domain.ClarificationAssessment, userID int64, engine string) bool {
+	if issue.SessionEngineVersion < clarifySessionVersion(engine) {
+		return false
+	}
+	if issue.SessionUserID != 0 && issue.SessionUserID != userID {
+		return false
+	}
+	if engine == runtime.AgentCLIOpenCode {
+		return sessionID != "" && !strings.ContainsAny(sessionID, `/\\*?[]`) && sessionID != "." && sessionID != ".."
+	}
+	return canResumeClarifySession(homeDir, sessionID, issue.SessionUserID, userID)
 }
 
 // CodeBuddy can report a missing resume conversation but still exit with 0.
@@ -215,6 +240,17 @@ func prepareClarifyCommand(bin, model, prompt, runID, sessionID string, resume b
 }
 
 func prepareClarifyCommandWith(opts clarifyCommandOpts) (runtime.CommandSpec, error) {
+	if engine, engineModel := assistantModelEngine(opts.Model); engine == runtime.AgentCLIOpenCode {
+		resume := ""
+		if opts.Resume {
+			resume = strings.TrimSpace(opts.SessionID)
+		}
+		command := runtime.AgentCLICommand(runtime.AgentCLIOpenCode, runtime.AgentCLICommandOptions{
+			Binary: opts.Bin, Model: engineModel, Resume: resume, Prompt: opts.Prompt, Chat: true,
+		})
+		command.CredentialBindings = []runtime.CredentialBinding{runtime.BindAgentCLI, runtime.BindGit, runtime.BindMCP}
+		return command, nil
+	}
 	args := []string{"-p", "--max-turns", "500", "--output-format", "stream-json", "--include-partial-messages"}
 	if strings.TrimSpace(opts.MCPConfig) != "" {
 		args = append(args, "--mcp-config", opts.MCPConfig, "--strict-mcp-config")
@@ -267,7 +303,11 @@ func captureClarifySessionID(line string) string {
 	if json.Unmarshal([]byte(line), &event) != nil {
 		return ""
 	}
+	// v1/Claude-style events use session_id; OpenCode 2 uses sessionID.
 	sid, _ := event["session_id"].(string)
+	if strings.TrimSpace(sid) == "" {
+		sid, _ = event["sessionID"].(string)
+	}
 	return strings.TrimSpace(sid)
 }
 

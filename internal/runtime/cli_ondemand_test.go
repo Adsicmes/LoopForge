@@ -47,7 +47,7 @@ func TestInstallOnDemandCLIInstallsNPMPackageOnce(t *testing.T) {
 		t.Fatalf("reuse %q %v", second, err)
 	}
 	calls, _ := os.ReadFile(log)
-	if strings.Count(string(calls), "\n") != 1 || !strings.Contains(string(calls), "opencode-ai") || !strings.Contains(string(calls), "--engine-strict") || strings.Contains(string(calls), "--engine-strict=false") {
+	if strings.Count(string(calls), "\n") != 1 || !strings.Contains(string(calls), "@opencode/cli@"+OpenCodeVersion) || !strings.Contains(string(calls), "--engine-strict") || strings.Contains(string(calls), "--engine-strict=false") {
 		t.Fatalf("npm calls: %s", calls)
 	}
 	if staged, _ := filepath.Glob(filepath.Join(root, "opencode", ".install-*")); len(staged) != 0 {

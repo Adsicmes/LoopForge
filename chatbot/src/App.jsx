@@ -457,6 +457,8 @@ export default function App() {
   const pinnedExecutor = lockedExecutorId
     ? (chat.executors || []).find((item) => item.id === lockedExecutorId)
     : undefined;
+  const activeExecutorOption =
+    (chat.executors || []).find((item) => item.id === chat.executor) || {};
   const projectOptions = projectPickerOptions(
     chat.projects,
     chat.user,
@@ -1723,15 +1725,14 @@ export default function App() {
             !chat.local &&
             chat.user &&
             !chat.user.isGuest &&
-            !chat.user.codeBuddyApiKeyConfigured &&
-            !chat.sponsoredModel &&
-            chat.executor === "codebuddy" &&
+            activeExecutorOption.configured === false &&
+            !activeExecutorOption.shared &&
             !chat.readOnly &&
-            credentialHint(chat.error)?.field !== "codeBuddyApiKey" ? (
+            credentialHint(chat.error)?.field !== activeExecutorOption.credential ? (
               <div className="credential-notice" role="status">
                 <HarnessIcon name="key" size={15} aria-hidden="true" />
                 <span>
-                  当前执行器 CodeBuddy 需要先配置 CodeBuddy API Key。
+                  当前执行器 {activeExecutorOption.label || chat.executor} 需要先配置 API Key，或让管理员配置平台共享 Key。
                   {chat.user.codexApiKeyConfigured ||
                   chat.user.claudeCodeApiKeyConfigured
                     ? "你已配置 Codex / Claude Code Key，也可以在输入框下方把执行器切换过去。"
@@ -1739,7 +1740,11 @@ export default function App() {
                 </span>
                 <button
                   type="button"
-                  onClick={() => openCredentialSettings("codeBuddyApiKey")}
+                  onClick={() =>
+                    openCredentialSettings(
+                      activeExecutorOption.credential || "agentCli.opencode",
+                    )
+                  }
                 >
                   去配置
                 </button>
@@ -2420,8 +2425,13 @@ export default function App() {
         projects={chat.projects}
         projectId={chat.projectId}
         defaultModel={chat.model}
-        sponsoredModel={chat.sponsoredModel}
-        sponsoredModels={chat.sponsoredModels}
+        openCodeShared={Boolean(
+          (chat.executors || []).find((item) => item.id === "opencode")
+            ?.shared,
+        )}
+        openCodeSharedModels={(chat.models || [])
+          .filter((model) => model.engine === "opencode")
+          .map((model) => model.id)}
         onClose={() => setQuickAccessOpen(false)}
         onOpenView={(view) => navigate(view)}
         onCredentialsSaved={chat.refreshUser}

@@ -393,7 +393,11 @@ func bindAssistantMCP(server domain.MCPServerDefinition, user domain.User) (doma
 }
 
 func redactAssistantSecrets(text string, user domain.User) string {
-	for _, secret := range []string{user.CodeBuddyAPIKey, user.CodexAPIKey, user.ClaudeCodeAPIKey, user.GitToken, user.YunxiaoToken} {
+	secrets := []string{user.CodeBuddyAPIKey, user.CodexAPIKey, user.ClaudeCodeAPIKey, user.GitToken, user.YunxiaoToken}
+	for _, credential := range user.AgentCLICredentials {
+		secrets = append(secrets, credential.APIKey)
+	}
+	for _, secret := range secrets {
 		secret = strings.TrimSpace(secret)
 		if secret != "" {
 			text = strings.ReplaceAll(text, secret, "[redacted]")

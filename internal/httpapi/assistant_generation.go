@@ -93,7 +93,7 @@ func (h *assistantHandlers) startGeneration(c *gin.Context) {
 		return
 	}
 	catalogEngine, _ := assistantModelEngine(req.Model)
-	catalog := assistantChatCatalog(c.Request.Context(), user.CodeBuddyInternetEnvironment, nil)
+	catalog := assistantChatCatalog(c.Request.Context(), user.CodeBuddyInternetEnvironment)
 	if catalogEngine == assistantEngineCodeBuddy {
 		catalog = h.chatCatalog(c.Request.Context(), user)
 	}
@@ -458,15 +458,10 @@ func (h *assistantHandlers) steerGeneration(c *gin.Context) {
 	}
 	stored, ok := h.repo.User(current.ID)
 	if !ok {
-		c.JSON(400, gin.H{"error": "请先配置个人 CodeBuddy API Key"})
+		c.JSON(400, gin.H{"error": "请先登录后再操作"})
 		return
 	}
-	user, sharedModels, ok := h.assistantChatUser(stored)
-	if !ok {
-		c.JSON(400, gin.H{"error": "请先配置个人 CodeBuddy API Key"})
-		return
-	}
-	ownerID, _, err := h.conversationScope(c, c.Param("id"), "", "", user.ID)
+	ownerID, _, err := h.conversationScope(c, c.Param("id"), "", "", stored.ID)
 	if err != nil {
 		c.JSON(403, gin.H{"error": err.Error()})
 		return
@@ -497,16 +492,17 @@ func (h *assistantHandlers) steerGeneration(c *gin.Context) {
 		c.JSON(404, gin.H{"error": "会话不存在"})
 		return
 	}
-	model := body.Model
-	if sharedModels != nil {
-		forced, allowed := assistantSponsoredModelFor(sharedModels, model)
-		if !allowed {
-			c.JSON(400, gin.H{"error": errAssistantSponsoredModel(sharedModels)})
-			return
-		}
-		model = forced
+	// A steer keeps the conversation's executor: resolve the model exactly as
+	// a new turn would, including the platform-shared OpenCode credential.
+	model := strings.TrimSpace(body.Model)
+	if model == "" {
+		model = session.Model
 	}
-	model = assistantAllowedModel(model, h.chatCatalog(c.Request.Context(), user))
+	user, model, refusal := h.assistantTurnUser(stored, model)
+	if refusal != "" {
+		c.JSON(400, gin.H{"error": refusal})
+		return
+	}
 	if err := validateAssistantEffort(user, model, body.Effort); err != nil {
 		c.JSON(400, gin.H{"error": err.Error()})
 		return

@@ -9,13 +9,12 @@ import (
 	"strconv"
 	"strings"
 
-	"agentflow/internal/domain"
 	"agentflow/internal/repo"
 
 	"github.com/gin-gonic/gin"
 )
 
-// 平台管理 → 成员账号 and 平台共享 CodeBuddy Key. Only platform
+// 平台管理 → 成员账号 and 平台共享 OpenCode Key. Only platform
 // administrators may use these endpoints.
 
 // platformAdminWrite admits a platform administrator's change: an API token,
@@ -151,11 +150,11 @@ func (h *usersHandlers) resetPlatformAccountPassword(c *gin.Context) {
 
 var sharedModelPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$`)
 
-// sharedCodeBuddyModels normalizes the allow list of the shared CodeBuddy
-// key: blanks and duplicates are dropped in submission order, every ID must
-// match sharedModelPattern, and the list must hold 1..MaxSharedCodeBuddyModels
+// normalizeSharedModels normalizes the allow list of the shared OpenCode key:
+// blanks and duplicates are dropped in submission order, every ID must match
+// sharedModelPattern, and the list must hold 1..MaxSharedOpenCodeModels
 // entries. The error text is shown to the administrator as is.
-func sharedCodeBuddyModels(raw []string) ([]string, error) {
+func normalizeSharedModels(raw []string) ([]string, error) {
 	var models []string
 	seen := map[string]bool{}
 	for _, value := range raw {
@@ -172,77 +171,80 @@ func sharedCodeBuddyModels(raw []string) ([]string, error) {
 	if len(models) == 0 {
 		return nil, errors.New("请至少选择一个允许使用的模型")
 	}
-	if len(models) > repo.MaxSharedCodeBuddyModels {
-		return nil, fmt.Errorf("最多选择 %d 个模型", repo.MaxSharedCodeBuddyModels)
+	if len(models) > repo.MaxSharedOpenCodeModels {
+		return nil, fmt.Errorf("最多选择 %d 个模型", repo.MaxSharedOpenCodeModels)
 	}
 	return models, nil
 }
 
-type platformCodeBuddyKeyResponse struct {
-	repo.PlatformCodeBuddyKeyStatus
-	// Catalog lists the models offered in the requested network environment.
+type platformOpenCodeKeyResponse struct {
+	repo.PlatformOpenCodeKeyStatus
+	// Catalog lists models the stored Base URL advertises. It is advisory:
+	// the administrator may also type model IDs the endpoint does not list.
 	Catalog []assistantModel `json:"catalog"`
 }
 
-// platformCodeBuddyKey shows and edits the shared CodeBuddy API Key. The key
-// itself is write-only: responses only say whether one is configured.
-func (h *usersHandlers) platformCodeBuddyKey(c *gin.Context) {
+// platformOpenCodeKey shows and edits the shared OpenCode credential. The key
+// is write-only: responses only say whether one is configured.
+func (h *usersHandlers) platformOpenCodeKey(c *gin.Context) {
 	switch c.Request.Method {
 	case http.MethodGet:
 		if !h.isPlatformAdmin(c.Request) {
 			c.JSON(http.StatusForbidden, gin.H{"error": "只有平台管理员可以查看共享 Key"})
 			return
 		}
-		status := h.repo.PlatformCodeBuddyKeyStatus()
-		environment := status.InternetEnvironment
-		if raw, ok := c.GetQuery("environment"); ok {
-			normalized, valid := domain.NormalizeCodeBuddyInternetEnvironment(raw)
-			if !valid {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "CodeBuddy 网络环境只能是国际站（留空）、国内站（internal）或 iOA（ioa）"})
-				return
+		status := h.repo.PlatformOpenCodeKeyStatus()
+		var catalog []assistantModel
+		if key, ok := h.repo.SharedOpenCodeKey(); ok && strings.TrimSpace(key.BaseURL) != "" {
+			discovered := cachedAssistantEngineDiscovery(c.Request.Context(), key.ProtocolOrDefault() == repo.OpenCodeProtocolMessages, key.APIKey, key.BaseURL)
+			for _, model := range discovered {
+				catalog = append(catalog, assistantModel{ID: model.ID, Name: model.Name, Family: assistantModelFamily(model.ID)})
 			}
-			environment = normalized
 		}
-		apiKey := ""
-		if key, ok := h.repo.SharedCodeBuddyKey(); ok && key.SponsorID == 0 && key.InternetEnvironment == environment {
-			apiKey = key.APIKey
-		}
-		refreshCLIModels(c.Request.Context(), environment, apiKey)
-		catalog := loadAssistantModels(c.Request.Context(), environment).Models
-		c.JSON(http.StatusOK, platformCodeBuddyKeyResponse{PlatformCodeBuddyKeyStatus: status, Catalog: catalog})
+		c.JSON(http.StatusOK, platformOpenCodeKeyResponse{PlatformOpenCodeKeyStatus: status, Catalog: catalog})
 	case http.MethodPut:
-		h.savePlatformCodeBuddyKey(c)
+		h.savePlatformOpenCodeKey(c)
 	case http.MethodDelete:
 		if !h.platformAdminWrite(c) {
 			return
 		}
-		if err := h.repo.ClearPlatformCodeBuddyKey(); err != nil {
+		if err := h.repo.ClearPlatformOpenCodeKey(); err != nil {
 			respond(c, err)
 			return
 		}
-		c.JSON(http.StatusOK, h.repo.PlatformCodeBuddyKeyStatus())
+		c.JSON(http.StatusOK, h.repo.PlatformOpenCodeKeyStatus())
 	default:
 		c.JSON(http.StatusMethodNotAllowed, gin.H{"error": "method not allowed"})
 	}
 }
 
-func (h *usersHandlers) savePlatformCodeBuddyKey(c *gin.Context) {
+func (h *usersHandlers) savePlatformOpenCodeKey(c *gin.Context) {
 	if !h.platformAdminWrite(c) {
 		return
 	}
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 16<<10)
 	var input struct {
-		APIKey              string   `json:"apiKey"`
-		InternetEnvironment string   `json:"internetEnvironment"`
-		Models              []string `json:"models"`
+		APIKey   string   `json:"apiKey"`
+		BaseURL  string   `json:"baseUrl"`
+		Protocol string   `json:"protocol"`
+		Models   []string `json:"models"`
 	}
 	if c.ShouldBindJSON(&input) != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid shared key request"})
 		return
 	}
-	environment, ok := domain.NormalizeCodeBuddyInternetEnvironment(input.InternetEnvironment)
-	if !ok {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "CodeBuddy 网络环境只能是国际站（留空）、国内站（internal）或 iOA（ioa）"})
+	baseURL, err := normalizeSharedOpenCodeBaseURL(input.BaseURL)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	protocol := strings.ToLower(strings.TrimSpace(input.Protocol))
+	switch protocol {
+	case "", repo.OpenCodeProtocolChat:
+		protocol = repo.OpenCodeProtocolChat
+	case repo.OpenCodeProtocolResponses, repo.OpenCodeProtocolMessages:
+	default:
+		c.JSON(http.StatusBadRequest, gin.H{"error": "OpenCode 协议只能是 chat、responses 或 messages"})
 		return
 	}
 	key := strings.TrimSpace(input.APIKey)
@@ -250,7 +252,7 @@ func (h *usersHandlers) savePlatformCodeBuddyKey(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "API Key 格式不正确"})
 		return
 	}
-	models, err := sharedCodeBuddyModels(input.Models)
+	models, err := normalizeSharedModels(input.Models)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -259,14 +261,28 @@ func (h *usersHandlers) savePlatformCodeBuddyKey(c *gin.Context) {
 	if current, ok := h.requestUser(c.Request, true); ok {
 		actorID = current.ID
 	}
-	err = h.repo.SetPlatformCodeBuddyKey(repo.PlatformCodeBuddyKeyUpdate{APIKey: key, InternetEnvironment: environment, Models: models}, actorID)
-	if errors.Is(err, repo.ErrSharedCodeBuddyKeyRequired) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "请填写 CodeBuddy API Key"})
+	err = h.repo.SetPlatformOpenCodeKey(repo.PlatformOpenCodeKeyUpdate{
+		APIKey: key, BaseURL: baseURL, Protocol: protocol, Models: models,
+	}, actorID)
+	if errors.Is(err, repo.ErrSharedOpenCodeKeyRequired) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请填写 OpenCode API Key"})
 		return
 	}
 	if err != nil {
 		respond(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, h.repo.PlatformCodeBuddyKeyStatus())
+	c.JSON(http.StatusOK, h.repo.PlatformOpenCodeKeyStatus())
+}
+
+func normalizeSharedOpenCodeBaseURL(raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", errors.New("请填写 OpenCode Base URL")
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return "", errors.New("Base URL 必须是 http(s) 地址，且不能带凭据、查询参数或片段")
+	}
+	return strings.TrimRight(raw, "/"), nil
 }

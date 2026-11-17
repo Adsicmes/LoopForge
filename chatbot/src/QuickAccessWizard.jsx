@@ -14,19 +14,14 @@ import SlidingTabs from "./SlidingTabs";
 import { api, canChatInProject, canManageProjectRepos, write } from "./api";
 import { usePanelPresence } from "./usePanelPresence";
 import {
-  CODEBUDDY_ENVIRONMENTS,
-  codeBuddyEnvironment,
-  codeBuddyEnvironmentIntent,
-  codeBuddyEnvironmentLegacy,
-  codeBuddyKeyURL,
-  codeBuddyKeyWarning,
   openCredentialSettings,
 } from "./credentials";
 import "./quick-access-wizard.css";
 
 const DEFAULT_SOP_ID = "generic-backend-delivery";
 
-// Display names for the models users without their own key may use.
+// Display names for the shared OpenCode models a user without a personal key
+// may use.
 export function sharedModelNames(models, fallback = "") {
   const list = Array.isArray(models) && models.length ? models : fallback ? [fallback] : [];
   return list
@@ -767,7 +762,7 @@ async function provisionFallbackProjectSOP(projectId, workflowId, owner) {
         name: role.name,
         projectId,
         version: 1,
-        executorId: "codebuddy",
+        executorId: "opencode",
         description: role.description,
         prompt: role.prompt,
         artifactOutputs: [
@@ -840,8 +835,8 @@ export default function QuickAccessWizard({
   user,
   projects = [],
   projectId = "",
-  sponsoredModel = "",
-  sponsoredModels = [],
+  openCodeShared = false,
+  openCodeSharedModels = [],
   onClose,
   onCompleted,
   onCredentialsSaved,
@@ -860,9 +855,9 @@ export default function QuickAccessWizard({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [gitToken, setGitToken] = useState("");
-  const [codeBuddyApiKey, setCodeBuddyApiKey] = useState("");
-  // null follows the saved setting until the user picks an environment here.
-  const [codeBuddyEnvChoice, setCodeBuddyEnvChoice] = useState(null);
+  const [openCodeApiKey, setOpenCodeApiKey] = useState("");
+  const [openCodeBaseUrl, setOpenCodeBaseUrl] = useState("");
+  const [openCodeProtocol, setOpenCodeProtocol] = useState("chat");
   const [verifyingGit, setVerifyingGit] = useState(false);
   const [gitVerify, setGitVerify] = useState(null);
   const [projectMode, setProjectMode] = useState("existing");
@@ -886,6 +881,17 @@ export default function QuickAccessWizard({
   const bodyRef = useRef(null);
   const presence = usePanelPresence(open, 300);
   const reopenedWhileClosing = presence.phase === "closing";
+
+  // Follow the stored OpenCode endpoint once it arrives or changes elsewhere.
+  useEffect(() => {
+    const credential = storedUser?.agentCliCredentials?.opencode;
+    if (!credential) return;
+    setOpenCodeBaseUrl(credential.baseUrl || "");
+    setOpenCodeProtocol(credential.protocol || "chat");
+  }, [
+    storedUser?.agentCliCredentials?.opencode?.baseUrl,
+    storedUser?.agentCliCredentials?.opencode?.protocol,
+  ]);
 
   const editableProjects = useMemo(
     () =>
@@ -1014,8 +1020,13 @@ export default function QuickAccessWizard({
     setPhase("wizard");
     setError("");
     setGitToken("");
-    setCodeBuddyApiKey("");
-    setCodeBuddyEnvChoice(null);
+    setOpenCodeApiKey("");
+    setOpenCodeBaseUrl(
+      (storedUser || user)?.agentCliCredentials?.opencode?.baseUrl || "",
+    );
+    setOpenCodeProtocol(
+      (storedUser || user)?.agentCliCredentials?.opencode?.protocol || "chat",
+    );
     setGitVerify(null);
     setCompletedSummary(null);
     setBindRepoNow(true);
@@ -1261,21 +1272,16 @@ export default function QuickAccessWizard({
   );
   const sshReady = hasSSHKey(selectedSSHRepo);
   const sshRepository = (parsedRepo || defaultRepo)?.provider === "ssh";
-  const codeBuddyReady = Boolean(
-    storedUser?.codeBuddyApiKeyConfigured || codeBuddyApiKey.trim(),
+  const openCodeCredential = storedUser?.agentCliCredentials?.opencode || {};
+  const openCodeReady = Boolean(
+    openCodeCredential.apiKeyConfigured ||
+      openCodeApiKey.trim() ||
+      openCodeShared,
   );
-  // The CLI gets the stored text as-is: an old value such as china preselects
-  // what it meant, and still differs from it, so 下一步 rewrites it.
-  const storedCodeBuddyEnvRaw = String(
-    storedUser?.codeBuddyInternetEnvironment || "",
-  ).trim();
-  const storedCodeBuddyEnv =
-    codeBuddyEnvironmentIntent(storedCodeBuddyEnvRaw)?.value ?? "";
-  const codeBuddyEnvLegacy = codeBuddyEnvironmentLegacy(storedCodeBuddyEnvRaw);
-  const codeBuddyEnv = codeBuddyEnvChoice ?? storedCodeBuddyEnv;
-  const codeBuddyEnvInfo =
-    codeBuddyEnvironment(codeBuddyEnv) || CODEBUDDY_ENVIRONMENTS[0];
-  const codeBuddyWarning = codeBuddyKeyWarning(codeBuddyApiKey);
+  const openCodeSharedNames = sharedModelNames(
+    openCodeSharedModels,
+    openCodeCredential.models?.[0]?.id,
+  );
   const nodes =
     activeWorkflow?.nodes?.filter((node) => node.type === "agent") ||
     FALLBACK_NODES;
@@ -1290,26 +1296,36 @@ export default function QuickAccessWizard({
     if (!user?.id) return storedUser;
     const payload = {};
     if (gitToken.trim()) payload.gitToken = gitToken.trim();
-    if (codeBuddyApiKey.trim())
-      payload.codeBuddyApiKey = codeBuddyApiKey.trim();
-    // A key is always saved with the environment it was issued for.
-    if (codeBuddyApiKey.trim() || codeBuddyEnv !== storedCodeBuddyEnvRaw)
-      payload.codeBuddyInternetEnvironment = codeBuddyEnv;
+    if (openCodeApiKey.trim()) {
+      payload.agentCliCredentials = {
+        opencode: {
+          apiKey: openCodeApiKey.trim(),
+          baseUrl: openCodeBaseUrl.trim(),
+          protocol: openCodeProtocol,
+        },
+      };
+    } else if (
+      openCodeBaseUrl.trim() !== (openCodeCredential.baseUrl || "") ||
+      openCodeProtocol !== (openCodeCredential.protocol || "chat")
+    ) {
+      // The key stays stored; only the endpoint or protocol changes.
+      payload.agentCliCredentials = {
+        opencode: {
+          baseUrl: openCodeBaseUrl.trim(),
+          protocol: openCodeProtocol,
+        },
+      };
+    }
     if (!Object.keys(payload).length) return storedUser;
     const saved = await write(
       `/api/users/${encodeURIComponent(user.id)}/credentials`,
       payload,
       "PUT",
     );
-    const merged = { ...storedUser, ...saved };
-    // The server omits an empty environment, so 国际站 must overwrite the old value here.
-    if ("codeBuddyInternetEnvironment" in payload)
-      merged.codeBuddyInternetEnvironment =
-        saved?.codeBuddyInternetEnvironment || "";
+    const merged = mergeFreshUser(storedUser, saved);
     setStoredUser(merged);
     setGitToken("");
-    setCodeBuddyApiKey("");
-    setCodeBuddyEnvChoice(null);
+    setOpenCodeApiKey("");
     void onCredentialsSaved?.();
     window.parent !== window &&
       window.parent.postMessage(
@@ -1347,8 +1363,8 @@ export default function QuickAccessWizard({
     if (saving) return;
     setError("");
     if (activeStep.id === "auth") {
-      if (!gitReady && !hasSSHKeys && !codeBuddyReady && !sponsoredModel) {
-        setError("请先配置 GitHub Git Token、Git SSH 密钥或 CodeBuddy API Key。");
+      if (!gitReady && !hasSSHKeys && !openCodeReady) {
+        setError("请先配置 GitHub Git Token、Git SSH 密钥或 OpenCode 凭据。");
         return;
       }
       setSaving(true);
@@ -1586,10 +1602,12 @@ export default function QuickAccessWizard({
                 hasSSHKey(parseGongfengRepo(boundRepo.cloneUrl))
               : latestUser?.gitTokenConfigured,
         ),
-        codeBuddyReady: Boolean(
-          latestUser?.codeBuddyApiKeyConfigured ||
-            storedUser?.codeBuddyApiKeyConfigured,
+        openCodeReady: Boolean(
+          latestUser?.agentCliCredentials?.opencode?.apiKeyConfigured ||
+            storedUser?.agentCliCredentials?.opencode?.apiKeyConfigured ||
+            openCodeShared,
         ),
+        openCodeShared,
       });
       setPhase("success");
       await onCompleted?.(targetProject?.id || "");
@@ -1772,26 +1790,27 @@ export default function QuickAccessWizard({
                         </li>
                         <li
                           className={
-                            completedSummary?.codeBuddyReady || sponsoredModel
+                            completedSummary?.openCodeReady ||
+                            completedSummary?.openCodeShared
                               ? "is-ok"
                               : "is-warn"
                           }
                         >
                           <HarnessIcon
                             name={
-                              completedSummary?.codeBuddyReady
+                              completedSummary?.openCodeReady
                                 ? "check"
                                 : "info"
                             }
                             size={14}
                           />
                           <span>
-                            CodeBuddy API Key：
-                            {completedSummary?.codeBuddyReady
+                            OpenCode 凭据：
+                            {completedSummary?.openCodeReady
                               ? "已配置"
-                              : sponsoredModel
-                                ? `未配置。对话和 SOP 都会使用平台共享 Key（可用模型：${sharedModelNames(sponsoredModels, sponsoredModel)}），可以直接开始；配置自己的 Key 后可选用任意模型`
-                                : "未配置。对话可用平台默认模型，但运行 SOP 时节点需要它调模型，请先在个人配置补齐"}
+                              : completedSummary?.openCodeShared
+                                ? `未配置。对话和 SOP 会使用平台共享 Key（可用模型：${openCodeSharedNames || "管理员配置的模型"}），可以直接开始；配置自己的 Key 后可选用任意模型`
+                                : "未配置。对话和 SOP 都需要 OpenCode 凭据，请先在个人配置补齐，或让管理员配置平台共享 Key"}
                           </span>
                         </li>
                         <li className="is-ok">
@@ -1968,61 +1987,78 @@ export default function QuickAccessWizard({
                       <section className="qa-cred-card">
                         <header className="qa-cred-head">
                           <div>
-                            <strong>CodeBuddy API Key</strong>
+                            <strong>OpenCode 凭据</strong>
                             <span>
-                              {sponsoredModel
-                                ? "可选：未配置时对话和 SOP 使用平台共享模型，配置后可选用其他模型"
+                              {openCodeShared
+                                ? "可选：未配置时对话和 SOP 使用平台共享 Key，配置后可选用其他模型"
                                 : "AI 对话与 SOP 节点调用模型时使用"}
                             </span>
                           </div>
-                          <StatusPill ok={codeBuddyReady} />
+                          <StatusPill ok={openCodeReady} />
                         </header>
                         <div className="qa-cred-body">
                           <div className="qa-field">
-                            <span className="qa-label">网络环境</span>
+                            <span className="qa-label">Base URL</span>
+                            <input
+                              type="url"
+                              className="qa-input"
+                              value={openCodeBaseUrl}
+                              onChange={(e) =>
+                                setOpenCodeBaseUrl(e.target.value)
+                              }
+                              placeholder="https://gateway.example/v1"
+                              aria-label="OpenCode Base URL"
+                              autoComplete="off"
+                              spellCheck={false}
+                            />
+                          </div>
+                          <div className="qa-field">
+                            <span className="qa-label">协议</span>
                             <HarnessSelect
-                              value={codeBuddyEnv}
-                              options={CODEBUDDY_ENVIRONMENTS.map((env) => ({
-                                value: env.value,
-                                label: env.label,
-                                hint: env.site,
-                              }))}
-                              onChange={setCodeBuddyEnvChoice}
-                              ariaLabel="CodeBuddy 网络环境"
+                              value={openCodeProtocol}
+                              options={[
+                                { value: "chat", label: "Chat Completions" },
+                                { value: "responses", label: "Responses" },
+                                {
+                                  value: "messages",
+                                  label: "Messages（Anthropic）",
+                                },
+                              ]}
+                              onChange={setOpenCodeProtocol}
+                              ariaLabel="OpenCode 协议"
                             />
                           </div>
                           <div className="qa-input-row">
                             <input
                               type="password"
                               className="qa-input"
-                              value={codeBuddyApiKey}
+                              value={openCodeApiKey}
                               onChange={(e) =>
-                                setCodeBuddyApiKey(e.target.value)
+                                setOpenCodeApiKey(e.target.value)
                               }
                               placeholder={
-                                storedUser?.codeBuddyApiKeyConfigured
+                                openCodeCredential.apiKeyConfigured
                                   ? "已配置，留空保持不变"
-                                  : "粘贴 CodeBuddy API Key"
+                                  : "粘贴 OpenCode API Key"
                               }
-                              aria-label="CodeBuddy API Key"
+                              aria-label="OpenCode API Key"
                               autoComplete="new-password"
                             />
-                            <a
+                            <button
+                              type="button"
                               className="qa-link"
                               data-hover-ink-control=""
-                              href={codeBuddyKeyURL(codeBuddyEnv)}
-                              target="_blank"
-                              rel="noopener noreferrer"
+                              onClick={() =>
+                                openCredentialSettings("agentCli.opencode")
+                              }
                             >
-                              获取 API Key ↗
-                            </a>
+                              去个人配置 ↗
+                            </button>
                           </div>
-                          <p
-                            className={`qa-hint${codeBuddyWarning ? " is-warn" : ""}`}
-                            role="status"
-                          >
-                            {codeBuddyWarning ||
-                              `${codeBuddyEnvLegacy && codeBuddyEnvChoice === null ? `原来填写的「${storedCodeBuddyEnvRaw}」无法识别，CodeBuddy 实际按国际站连接，点下一步改为当前选择。` : ""}Key 只能在创建它的站点使用：当前选择${codeBuddyEnvInfo.label}（${codeBuddyEnvInfo.site}），「获取 API Key」会打开该站点的密钥页。`}
+                          <p className="qa-hint" role="status">
+                            {openCodeShared && !openCodeReady
+                              ? `当前未配置个人 Key，将使用平台共享 Key，可用模型：${openCodeSharedNames || "由管理员指定"}。`
+                              : "Key、Base URL 与协议需匹配同一个网关；模型列表由平台从该地址读取。"}
                           </p>
                         </div>
                       </section>
@@ -2417,15 +2453,15 @@ export default function QuickAccessWizard({
                             <dt>凭据</dt>
                             <dd>
                               <span
-                                className={`qa-dot ${(sshRepository ? sshReady : gitReady) && (codeBuddyReady || sponsoredModel) ? "is-ok" : ""}`}
+                                className={`qa-dot ${(sshRepository ? sshReady : gitReady) && openCodeReady ? "is-ok" : ""}`}
                               />
                               <span>
                                 {sshRepository ? "Git SSH" : "GitHub"} {(sshRepository ? sshReady : gitReady) ? "已配置" : "未配置"} ·
-                                CodeBuddy{" "}
-                                {codeBuddyReady
+                                OpenCode{" "}
+                                {openCodeReady
                                   ? "已配置"
-                                  : sponsoredModel
-                                    ? "使用平台共享模型"
+                                  : openCodeShared
+                                    ? "使用平台共享 Key"
                                     : "未配置"}
                               </span>
                             </dd>

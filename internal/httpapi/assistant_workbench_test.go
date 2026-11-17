@@ -25,7 +25,7 @@ func workbenchFixture(t *testing.T) (*assistantHandlers, domain.User) {
 		t.Fatal(err)
 	}
 	t.Cleanup(st.Close)
-	if err = st.PutUser(domain.User{LoginName: "workbench-owner", CodeBuddyAPIKey: "test-only"}); err != nil {
+	if err = st.PutUser(testOpenCode(domain.User{LoginName: "workbench-owner", CodeBuddyAPIKey: "test-only"})); err != nil {
 		t.Fatal(err)
 	}
 	u, _ := st.UserByLoginName("workbench-owner")

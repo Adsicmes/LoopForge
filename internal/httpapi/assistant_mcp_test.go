@@ -224,7 +224,7 @@ func TestScheduledTaskKeepsPlaintextAndDoesNotParseJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(st.Close)
-	if err := st.PutUser(domain.User{LoginName: "task-native", CodeBuddyAPIKey: "task-secret"}); err != nil {
+	if err := st.PutUser(testOpenCode(domain.User{LoginName: "task-native", CodeBuddyAPIKey: "task-secret"})); err != nil {
 		t.Fatal(err)
 	}
 	user, ok := st.UserByLoginName("task-native")
