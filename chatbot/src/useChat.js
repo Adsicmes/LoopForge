@@ -610,6 +610,20 @@ export function useChat() {
         .catch(() => {}),
     [],
   );
+  // A saved credential changes the executor list (configured/shared flags) and
+  // the models a CLI may use, so the catalog has to be reloaded as well.
+  const refreshCatalog = useCallback(
+    () =>
+      api("/api/assistant/models")
+        .then((catalog) => {
+          setModels(catalog.models || []);
+          setCatalogEngines(catalog.engines || []);
+          defaultModel.current = catalog.default || defaultModel.current;
+          setSponsoredModels(sponsoredModelList(catalog));
+        })
+        .catch(() => {}),
+    [],
+  );
   useEffect(() => {
     if (!ready) return;
     const onMessage = (e) => {
@@ -617,8 +631,10 @@ export function useChat() {
         e.source === window.parent &&
         e.origin === location.origin &&
         e.data?.type === "agentflow-credentials-changed"
-      )
+      ) {
         void refreshUser();
+        void refreshCatalog();
+      }
     };
     window.addEventListener("message", onMessage);
     if (missingKey) window.addEventListener("focus", refreshUser);
@@ -626,7 +642,7 @@ export function useChat() {
       window.removeEventListener("message", onMessage);
       window.removeEventListener("focus", refreshUser);
     };
-  }, [ready, missingKey, refreshUser]);
+  }, [ready, missingKey, refreshUser, refreshCatalog]);
   useEffect(() => writeQueues(queues), [queues]);
   useEffect(() => {
     const s = steeringRef.current;
