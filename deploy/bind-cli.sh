@@ -83,14 +83,14 @@ warn() { echo "[bind-cli] 警告: $*" >&2; }
 # stub binary that prints "postinstall script was not run".
 opencode_major() {
   command -v opencode >/dev/null 2>&1 || return 0
-  opencode --version 2>/dev/null | sed -n 's/^[^0-9]*\([0-9][0-9]*\).*/\1/p' | head -1
+  opencode --version 2>/dev/null | sed -n 's/^[^0-9]*\([0-9][0-9]*\).*/\1/p' | head -1 || true
 }
 
 ensure_opencode_v2() {
   local current prefix postinstall
   current="$(opencode_major)"
   if [[ -n "$current" && "$current" -ge 2 ]]; then
-    info "  opencode 已是 v2：$(command -v opencode)（$(opencode --version 2>/dev/null | head -1)）"
+    info "  opencode 已是 v2：$(command -v opencode)（$(opencode --version 2>/dev/null | head -1 || true)）"
     return 0
   fi
   if ! command -v npm >/dev/null 2>&1; then
@@ -125,7 +125,7 @@ ensure_opencode_v2() {
     warn "  OpenCode 安装后仍不是 v2；请检查 npm 输出和 ${prefix}/bin/opencode"
     return 1
   fi
-  info "  OpenCode v2 已安装：$(command -v opencode)（$(opencode --version 2>/dev/null | head -1)）"
+  info "  OpenCode v2 已安装：$(command -v opencode)（$(opencode --version 2>/dev/null | head -1 || true)）"
 }
 
 # systemctl --user 走用户 D-Bus。SSH 进 CVM、以 root 执行，或当前 shell

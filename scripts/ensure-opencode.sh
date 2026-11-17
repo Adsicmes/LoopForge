@@ -11,7 +11,7 @@ PREFIX="${OPENCODE_INSTALL_PREFIX:-$HOME/.local}"
 
 opencode_major() {
   command -v opencode >/dev/null 2>&1 || return 0
-  opencode --version 2>/dev/null | sed -n 's/^[^0-9]*\([0-9][0-9]*\).*/\1/p' | head -1
+  opencode --version 2>/dev/null | sed -n 's/^[^0-9]*\([0-9][0-9]*\).*/\1/p' | head -1 || true
 }
 
 existing="$(opencode_major)"
@@ -50,4 +50,4 @@ if [[ -z "$installed" || "$installed" -lt 2 ]]; then
   echo "OpenCode ${VERSION} did not install a working v2 binary at ${PREFIX}/bin/opencode." >&2
   exit 1
 fi
-echo "Installed OpenCode v2: $(command -v opencode) ($(opencode --version 2>/dev/null | head -1))"
+echo "Installed OpenCode v2: $(command -v opencode) ($(opencode --version 2>/dev/null | head -1 || true))"
