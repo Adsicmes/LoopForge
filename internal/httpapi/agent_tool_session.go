@@ -103,7 +103,10 @@ type AgentToolSession struct {
 	// dispatches are the Agent calls still running this turn. A subagent
 	// works in the bound workspace, so it is not switched under it.
 	// The value is the subagent id once the stream reports it.
-	dispatches        map[string]string
+	dispatches map[string]string
+	// toolCalls cancels the tools/call requests still running, by JSON-RPC
+	// id, when the CLI sends notifications/cancelled for them.
+	toolCalls         map[string]*agentToolCallCancel
 	nativePhaseClosed atomic.Bool
 	closed            atomic.Bool
 	committed         atomic.Bool

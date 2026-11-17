@@ -243,6 +243,7 @@ type AssistantNativeApproval struct {
 	GenerationID string          `json:"generationId,omitempty"`
 	ActorID      int64           `json:"actorId"`
 	Tool         string          `json:"tool"`
+	Summary      string          `json:"summary,omitempty"`
 	Input        json.RawMessage `json:"input"`
 	InputDigest  string          `json:"-"`
 	Decision     string          `json:"decision"`
