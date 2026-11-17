@@ -178,6 +178,22 @@ func TestRunClarifyTurnDetectsMissingSessionWithZeroExitCode(t *testing.T) {
 	}
 }
 
+func TestCanResumeClarificationRequiresOpenCodeV2(t *testing.T) {
+	home := t.TempDir()
+	old := domain.ClarificationAssessment{SessionID: "ses_1", SessionUserID: 1}
+	if canResumeClarification(home, "ses_1", old, 1, runtime.AgentCLIOpenCode) {
+		t.Fatal("an OpenCode 1 session must not be resumed")
+	}
+	current := old
+	current.SessionEngineVersion = 2
+	if !canResumeClarification(home, "ses_1", current, 1, runtime.AgentCLIOpenCode) {
+		t.Fatal("a v2 session should resume")
+	}
+	if canResumeClarification(home, "ses_1", current, 2, runtime.AgentCLIOpenCode) {
+		t.Fatal("another user's session must not resume")
+	}
+}
+
 func TestExecuteClarifyRebuildsSessionFromHistory(t *testing.T) {
 	for _, tc := range []struct {
 		name        string
@@ -224,7 +240,7 @@ printf '%s\n' '{"type":"result","result":"{\"summary\":\"已确认需求\",\"rea
 			if err := os.WriteFile(bin, []byte(script), 0o700); err != nil {
 				t.Fatal(err)
 			}
-			request := chatClarifyRequest{Message: "保留最近90天", SessionID: "old-session"}
+			request := chatClarifyRequest{Message: "保留最近90天", SessionID: "old-session", Model: "deepseek-v4.1-flash"}
 			request.History = append(request.History, struct {
 				Role    string `json:"role"`
 				Content string `json:"content"`

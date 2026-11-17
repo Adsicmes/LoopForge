@@ -101,7 +101,10 @@ var agentCLIHostEnv = append([]string{
 	"AGY_LLM_GATEWAY_URL", "AGY_LLM_GATEWAY_API_KEY", "AGY_LLM_GATEWAY_WIRE_PROTOCOL", "AGY_LLM_GATEWAY_MODELS",
 	"DEEPSEEK_API_KEY", "DSH_HOME", "MOONSHOT_API_KEY", "KIMI_API_KEY", "KIMI_BASE_URL", "KIMI_CODE_HOME",
 	"KIMI_MODEL_NAME", "KIMI_MODEL_API_KEY", "KIMI_MODEL_BASE_URL", "KIMI_MODEL_PROVIDER_TYPE",
-	"OPENCODE_CONFIG", "OPENCODE_CONFIG_CONTENT", "OPENCODE_CONFIG_DIR", "PI_CODING_AGENT_DIR",
+	"OPENCODE_CONFIG", "OPENCODE_CONFIG_CONTENT", "OPENCODE_CONFIG_DIR",
+	"OPENCODE_DISABLE_PROJECT_CONFIG", "OPENCODE_CONFIG_PROJECT_DISABLE", "OPENCODE_DISABLE_CLAUDE_CODE",
+	"OPENCODE_DISABLE_AUTOUPDATE",
+	"PI_CODING_AGENT_DIR",
 	"ZCODE_DATA_BASE_DIR", zcodePersonalFileEnv,
 }, zcodeHostEnv...)
 
@@ -122,6 +125,9 @@ type AgentCLIMCPOptions struct {
 	// ReadOnly denies the CLI's own shell, edit and web tools (AI 对话 runs on
 	// the control plane); MCP tools stay available.
 	ReadOnly bool
+	// SubmitOnly is the clarify retry mode: native read/search tools are also
+	// denied so the model has to submit through the MCP tool.
+	SubmitOnly bool
 }
 
 var dshServerNameRe = regexp.MustCompile(`[^A-Za-z0-9_-]`)
@@ -179,11 +185,16 @@ func WriteAgentCLIMCPConfig(kind string, home AgentCLIHome, entries map[string]a
 	var document any
 	switch kind {
 	case AgentCLIOpenCode:
-		permission := map[string]any{"edit": "allow", "bash": "allow", "webfetch": "allow", "external_directory": "allow", "doom_loop": "allow"}
-		if options.ReadOnly {
-			permission = map[string]any{"edit": "deny", "bash": "deny", "webfetch": "deny", "websearch": "deny", "external_directory": "deny", "task": "deny"}
+		doc := map[string]any{
+			"$schema": "https://opencode.ai/config.json",
+			"mcp":     map[string]any{"servers": servers},
+			"update":  "disable",
+			"share":   "disabled",
 		}
-		document = map[string]any{"$schema": "https://opencode.ai/config.json", "mcp": servers, "permission": permission, "autoupdate": false, "share": "disabled"}
+		if rules := openCodePermissionRules(options); len(rules) > 0 {
+			doc["permissions"] = rules
+		}
+		document = doc
 	case AgentCLIDeepSeek:
 		if len(dshInserts) == 0 {
 			document = []any{}
@@ -213,13 +224,69 @@ func WriteAgentCLIMCPConfig(kind string, home AgentCLIHome, entries map[string]a
 	return writeAgentCLIFile(home, rel, data)
 }
 
-// openCodeMCPServer renders one MCP entry for OpenCode: a remote server for
-// a URL entry, otherwise a local server whose command is the argv array.
+// openCodeProtocolPackage maps the platform's protocol choice onto OpenCode
+// 2's provider runtime packages.
+func openCodeProtocolPackage(protocol string) string {
+	switch protocol {
+	case AgentCLIProtocolResponses:
+		return "@opencode/ai/providers/openai-compatible/responses"
+	case AgentCLIProtocolMessages:
+		return "@opencode/ai/providers/anthropic-compatible"
+	default:
+		return "@opencode/ai/providers/openai-compatible"
+	}
+}
+
+// openCodeEffortVariants defines the reasoning-effort variants the agent
+// wizard offers. OpenCode 2 selects one with a model reference suffix
+// (`agentflow/<model>#<effort>`).
+func openCodeEffortVariants() []any {
+	levels := domain.ExecutorEffortLevels[AgentCLIOpenCode]
+	out := make([]any, 0, len(levels))
+	for _, level := range levels {
+		out = append(out, map[string]any{
+			"id":       level,
+			"settings": map[string]any{"reasoningEffort": level},
+		})
+	}
+	return out
+}
+
+// openCodePermissionRules is the v2 permission overlay. OpenCode's base policy
+// allows everything, so a read-only turn must deny the mutating and network
+// tools explicitly; SubmitOnly additionally hides native read/search so the
+// model has to submit through the MCP tool.
+func openCodePermissionRules(options AgentCLIMCPOptions) []any {
+	if !options.ReadOnly && !options.SubmitOnly {
+		return nil
+	}
+	rules := []any{
+		map[string]any{"action": "edit", "resource": "*", "effect": "deny"},
+		map[string]any{"action": "shell", "resource": "*", "effect": "deny"},
+		map[string]any{"action": "webfetch", "resource": "*", "effect": "deny"},
+		map[string]any{"action": "websearch", "resource": "*", "effect": "deny"},
+		map[string]any{"action": "external_directory", "resource": "*", "effect": "deny"},
+	}
+	if options.SubmitOnly {
+		rules = append(rules,
+			map[string]any{"action": "read", "resource": "*", "effect": "deny"},
+			map[string]any{"action": "glob", "resource": "*", "effect": "deny"},
+			map[string]any{"action": "grep", "resource": "*", "effect": "deny"},
+		)
+	}
+	return rules
+}
+
+// openCodeMCPServer renders one MCP entry in OpenCode 2's `mcp.servers`
+// shape. A remote entry that carries headers is a platform gateway call, so
+// OAuth is disabled; an entry without headers may use the server's OAuth.
 func openCodeMCPServer(entry map[string]any) map[string]any {
+	timeout := map[string]any{"execution": 600000}
 	if url, _ := entry["url"].(string); url != "" {
-		server := map[string]any{"type": "remote", "url": url, "enabled": true, "timeout": 600000}
+		server := map[string]any{"type": "remote", "url": url, "disabled": false, "timeout": timeout}
 		if headers := entry["headers"]; headers != nil {
 			server["headers"] = headers
+			server["oauth"] = false
 		}
 		return server
 	}
@@ -232,9 +299,12 @@ func openCodeMCPServer(entry map[string]any) map[string]any {
 	} else if args, ok := entry["args"].([]any); ok {
 		argv = append(argv, args...)
 	}
-	server := map[string]any{"type": "local", "command": argv, "enabled": true, "timeout": 600000}
+	server := map[string]any{"type": "local", "command": argv, "disabled": false, "timeout": timeout}
 	if env := entry["env"]; env != nil {
 		server["environment"] = env
+	}
+	if cwd, _ := entry["cwd"].(string); strings.TrimSpace(cwd) != "" {
+		server["cwd"] = cwd
 	}
 	return server
 }
@@ -380,22 +450,30 @@ func ApplyAgentCLICredential(kind string, cred ProviderCredential, options Agent
 	env := map[string]string{}
 	switch kind {
 	case AgentCLIOpenCode:
-		npm := map[string]string{AgentCLIProtocolChat: "@ai-sdk/openai-compatible", AgentCLIProtocolResponses: "@ai-sdk/openai", AgentCLIProtocolMessages: "@ai-sdk/anthropic"}[protocol]
 		endpoint := baseURL
 		if protocol == AgentCLIProtocolMessages && !strings.HasSuffix(endpoint, "/v1") {
-			// Base URLs follow the Claude Code convention; the AI SDK wants /v1.
+			// Base URLs follow the Claude Code convention; the Anthropic
+			// compatible runtime wants /v1.
 			endpoint += "/v1"
 		}
+		modelConfig := map[string]any{"name": model}
+		if variants := openCodeEffortVariants(); len(variants) > 0 {
+			modelConfig["variants"] = variants
+		}
 		config := map[string]any{
-			"provider": map[string]any{"agentflow": map[string]any{
-				"npm":     npm,
+			"$schema": "https://opencode.ai/config.json",
+			"providers": map[string]any{"agentflow": map[string]any{
 				"name":    "AgentFlow",
-				"options": map[string]any{"baseURL": endpoint, "apiKey": "{env:" + agentCLIKeyEnv + "}"},
-				"models":  map[string]any{model: map[string]any{"name": model}},
+				"package": openCodeProtocolPackage(protocol),
+				"settings": map[string]any{
+					"baseURL": endpoint,
+					"apiKey":  "{env:" + agentCLIKeyEnv + "}",
+				},
+				"models": map[string]any{model: modelConfig},
 			}},
-			"model":      "agentflow/" + model,
-			"autoupdate": false,
-			"share":      "disabled",
+			"model":  "agentflow/" + model,
+			"update": "disable",
+			"share":  "disabled",
 		}
 		if prompt := strings.TrimSpace(options.SystemPromptFile); prompt != "" {
 			config["instructions"] = []string{prompt}
@@ -404,6 +482,11 @@ func ApplyAgentCLICredential(kind string, cred ProviderCredential, options Agent
 		env[agentCLIKeyEnv] = key
 		env["OPENCODE_CONFIG_CONTENT"] = string(content)
 		env["OPENCODE_DISABLE_AUTOUPDATE"] = "1"
+		// OpenCode 2 otherwise discovers the repository's opencode.json and
+		// .opencode directory. A repository must not be able to add plugins,
+		// permissions or MCP servers around the platform gateway.
+		env["OPENCODE_DISABLE_PROJECT_CONFIG"] = "1"
+		env["OPENCODE_DISABLE_CLAUDE_CODE"] = "1"
 	case AgentCLICursor:
 		env["CURSOR_API_KEY"] = key
 		if model != "" {

@@ -217,7 +217,14 @@ export default function(pi) {
 }
 `
 const conversationOpenCodeApproval = conversationApprovalJS + `
-export const LoopForgeApproval=async()=>({"tool.execute.before":async(input,output)=>{await approve(input.tool,output.args)}});
+export default {
+  id: "loopforge-approval",
+  async setup(ctx) {
+    await ctx.tool.hook("execute.before", async (event) => {
+      await approve(event.tool, event.input);
+    });
+  },
+};
 `
 const conversationDSHApproval = conversationApprovalJS + `
 export const inject=["tools"];

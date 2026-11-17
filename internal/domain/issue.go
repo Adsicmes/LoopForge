@@ -152,6 +152,11 @@ type ClarificationAssessment struct {
 	Questions            []ClarificationQuestion `json:"questions,omitempty"`
 	SessionID            string                  `json:"sessionId,omitempty"`
 	SessionUserID        int64                   `json:"sessionUserId,omitempty"`
+	// SessionEngineVersion marks the CLI schema version that owns SessionID.
+	// OpenCode 2 is incompatible with OpenCode 1 sessions, so an older marker
+	// (including a missing one) restarts the conversation from the platform
+	// transcript instead of resuming a stale native session.
+	SessionEngineVersion int  `json:"sessionEngineVersion,omitempty"`
 	WriteBackStatus      string                  `json:"writeBackStatus,omitempty"` // pending, succeeded, failed, skipped
 	WriteBackError       string                  `json:"writeBackError,omitempty"`
 	WriteBackFingerprint string                  `json:"writeBackFingerprint,omitempty"`

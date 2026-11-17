@@ -20,7 +20,7 @@ func TestScheduledAssistantNotificationUsesModelOutputWithoutExtraCalls(t *testi
 		t.Fatal(err)
 	}
 	defer s.Close()
-	if err = s.PutUser(domain.User{LoginName: "ai-owner", CodeBuddyAPIKey: "test-ai-key"}); err != nil {
+	if err = s.PutUser(testOpenCode(domain.User{LoginName: "ai-owner", CodeBuddyAPIKey: "test-ai-key"})); err != nil {
 		t.Fatal(err)
 	}
 	owner, _ := s.UserByLoginName("ai-owner")

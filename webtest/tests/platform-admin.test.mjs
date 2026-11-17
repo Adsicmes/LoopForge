@@ -49,7 +49,7 @@ test('platform admin page splits accounts, admins and the shared key into tabs',
   app.evaluate(`state.currentUser={...state.data.users[0],isGuest:false,isPlatformAdmin:true}`);
   app.router.get('/api/platform/admins', [{ userId: 1, loginName: 'owner', chineseName: '', source: 'granted', revocable: true }]);
   app.router.get('/api/platform/accounts', { signupEnabled: true, accounts: [1, 2, 3].map((id) => ({ userId: id, loginName: `user${id}`, admin: id === 1, password: true, codeBuddyApiKeyConfigured: false })) });
-  app.router.get(/^\/api\/platform\/codebuddy-key/, { configured: true, internetEnvironment: '', models: ['glm-5.1'], updatedBy: 'owner', catalog: [{ id: 'glm-5.1', name: 'GLM-5.1' }, { id: 'kimi-k2.6', name: 'Kimi-K2.6' }] });
+  app.router.get(/^\/api\/platform\/opencode-key/, { configured: true, baseUrl: 'https://gw.example/v1', protocol: 'chat', models: ['glm-5.1'], updatedBy: 'owner', catalog: [{ id: 'glm-5.1', name: 'GLM-5.1' }, { id: 'kimi-k2.6', name: 'Kimi-K2.6' }] });
   app.evaluate(`renderPlatformAdminPanel()`);
   await settle(8);
   const host = app.document.querySelector('#platformAdminPanel');
@@ -138,26 +138,20 @@ test('platform admins create accounts and reset passwords from the page', async 
   assert.equal(card.querySelectorAll('[data-account-row]').length, 1);
 });
 
-test('platform admins share a CodeBuddy key limited to the models they pick', async (t) => {
+test('platform admins share an OpenCode key limited to the models they pick', async (t) => {
   const app = await loadApp();
   t.after(app.close);
   app.evaluate(`state.currentUser={...state.data.users[0],isGuest:false,isPlatformAdmin:true}`);
-  const catalogs = {
-    '': [{ id: 'default', name: 'CLI 默认模型' }, { id: 'glm-5.1', name: 'GLM-5.1', credits: '0.2x' }, { id: 'kimi-k2.6', name: 'Kimi-K2.6' }],
-    internal: [{ id: 'default', name: 'CLI 默认模型' }, { id: 'deepseek-v4.1-flash', name: 'Deepseek-V4.1-Flash' }, { id: 'glm-5.1', name: 'GLM-5.1' }],
-  };
-  let saved = { configured: false, internetEnvironment: '', models: [], legacySponsor: 'sponsor', legacySponsorModel: 'deepseek-v4.1-flash' };
+  const catalog = [{ id: 'glm-5.1', name: 'GLM-5.1' }, { id: 'kimi-k2.6', name: 'Kimi-K2.6' }];
+  let saved = { configured: false, baseUrl: '', protocol: 'chat', models: [] };
   app.router.get('/api/platform/admins', []);
   app.router.get('/api/platform/accounts', { accounts: [], signupEnabled: true });
-  app.router.get(/^\/api\/platform\/codebuddy-key/, (call) => {
-    const env = call.url.searchParams.has('environment') ? call.url.searchParams.get('environment') : saved.internetEnvironment;
-    return { ...saved, catalog: catalogs[env] || [] };
-  });
-  app.router.put('/api/platform/codebuddy-key', (call) => {
-    saved = { ...saved, configured: true, internetEnvironment: call.body.internetEnvironment, models: call.body.models, updatedBy: 'owner' };
+  app.router.get(/^\/api\/platform\/opencode-key/, () => ({ ...saved, catalog }));
+  app.router.put('/api/platform/opencode-key', (call) => {
+    saved = { ...saved, configured: true, baseUrl: call.body.baseUrl, protocol: call.body.protocol, models: call.body.models, updatedBy: 'owner' };
     return saved;
   });
-  app.router.delete('/api/platform/codebuddy-key', () => {
+  app.router.delete('/api/platform/opencode-key', () => {
     saved = { ...saved, configured: false, models: [] };
     return saved;
   });
@@ -165,44 +159,42 @@ test('platform admins share a CodeBuddy key limited to the models they pick', as
   await settle(8);
   const card = app.document.querySelector('#platformSharedKeyCard');
   const form = card.querySelector('#platformSharedKeyForm');
-  assert.match(card.querySelector('[data-shared-key-badge]').textContent, /使用旧配置/);
-  assert.match(card.querySelector('[data-shared-key-meta]').textContent, /AGENTFLOW_ASSISTANT_SPONSOR_LOGIN.*sponsor/);
-  assert.ok(!card.querySelector('[data-shared-models] input[value="default"]'), 'the CLI default is not offered');
-  assert.ok(card.querySelector('[data-shared-models] input[value="deepseek-v4.1-flash"]').checked, 'the legacy sponsor model starts selected');
+  assert.match(card.querySelector('[data-shared-key-badge]').textContent, /未启用/);
+  assert.ok(!card.querySelector('[data-shared-models] input[value="default"]'), 'a CLI default is not offered');
   assert.ok(card.querySelector('[data-shared-key-clear]').hidden);
 
-  form.elements.internetEnvironment.value = 'internal';
-  form.elements.internetEnvironment.dispatchEvent(new app.window.Event('change', { bubbles: true }));
-  await settle(6);
-  assert.equal(card.querySelector('[data-shared-key-link]').getAttribute('href'), 'https://copilot.tencent.com/profile/');
+  form.elements.baseUrl.value = 'https://gw.example/v1';
+  form.elements.protocol.value = 'responses';
   const box = (id) => card.querySelector(`[data-shared-models] input[value="${id}"]`);
   box('glm-5.1').checked = true;
   box('glm-5.1').dispatchEvent(new app.window.Event('change', { bubbles: true }));
   form.elements.extraModels.value = 'custom-model';
   form.elements.extraModels.dispatchEvent(new app.window.Event('input', { bubbles: true }));
-  assert.deepEqual([...form.elements.defaultModel.options].map((o) => o.value), ['deepseek-v4.1-flash', 'glm-5.1', 'custom-model']);
+  assert.deepEqual([...form.elements.defaultModel.options].map((o) => o.value), ['glm-5.1', 'custom-model']);
   form.elements.defaultModel.value = 'glm-5.1';
 
   form.dispatchEvent(new app.window.Event('submit', { bubbles: true, cancelable: true }));
   await settle(4);
   assert.equal(app.router.calls.filter((call) => call.method === 'PUT').length, 0, 'a first save needs the key');
 
-  form.elements.apiKey.value = 'sk-third-party';
-  form.elements.apiKey.dispatchEvent(new app.window.Event('input', { bubbles: true }));
-  assert.equal(card.querySelector('[data-shared-key-warning]').hidden, false);
-  form.elements.apiKey.value = 'ck_shared';
+  form.elements.apiKey.value = 'sk_shared';
   form.elements.apiKey.dispatchEvent(new app.window.Event('input', { bubbles: true }));
   assert.equal(card.querySelector('[data-shared-key-warning]').hidden, true);
   form.dispatchEvent(new app.window.Event('submit', { bubbles: true, cancelable: true }));
   await settle(6);
-  const put = app.router.calls.find((call) => call.method === 'PUT' && call.path === '/api/platform/codebuddy-key');
-  assert.deepEqual(put.body, { apiKey: 'ck_shared', internetEnvironment: 'internal', models: ['glm-5.1', 'deepseek-v4.1-flash', 'custom-model'] });
+  const put = app.router.calls.find((call) => call.method === 'PUT' && call.path === '/api/platform/opencode-key');
+  assert.deepEqual(put.body, {
+    apiKey: 'sk_shared',
+    baseUrl: 'https://gw.example/v1',
+    protocol: 'responses',
+    models: ['glm-5.1', 'custom-model'],
+  });
   assert.equal(form.elements.apiKey.value, '', 'the key is not kept in the page');
   assert.equal(form.elements.apiKey.placeholder, '已配置，留空保持不变');
   assert.match(card.querySelector('[data-shared-key-badge]').textContent, /已启用/);
-  assert.match(card.querySelector('[data-shared-key-meta]').textContent, /国内站，3 个模型，默认 glm-5.1/);
-  assert.deepEqual(app.evaluate(`state.data.sponsoredModels`), ['glm-5.1', 'deepseek-v4.1-flash', 'custom-model']);
-  assert.equal(app.evaluate(`sharedModelSummary()`), 'glm-5.1、Deepseek-V4.1-Flash、custom-model');
+  assert.match(card.querySelector('[data-shared-key-meta]').textContent, /Responses.*https:\/\/gw\.example\/v1.*2 个模型，默认 glm-5\.1/);
+  assert.deepEqual(app.evaluate(`state.data.sponsoredOpenCodeModels`), ['glm-5.1', 'custom-model']);
+  assert.equal(app.evaluate(`sharedModelSummary()`), 'glm-5.1、custom-model');
 
   const clear = card.querySelector('[data-shared-key-clear]');
   assert.equal(clear.hidden, false);
@@ -210,7 +202,7 @@ test('platform admins share a CodeBuddy key limited to the models they pick', as
   await settle();
   app.document.querySelector('#confirmOkBtn').click();
   await settle(6);
-  assert.ok(app.router.calls.some((call) => call.method === 'DELETE' && call.path === '/api/platform/codebuddy-key'));
-  assert.match(card.querySelector('[data-shared-key-badge]').textContent, /使用旧配置/);
-  assert.equal(app.evaluate(`state.data.sponsoredModel`), 'deepseek-v4.1-flash');
+  assert.ok(app.router.calls.some((call) => call.method === 'DELETE' && call.path === '/api/platform/opencode-key'));
+  assert.match(card.querySelector('[data-shared-key-badge]').textContent, /未启用/);
+  assert.equal(app.evaluate(`state.data.sponsoredOpenCodeModel`), '');
 });

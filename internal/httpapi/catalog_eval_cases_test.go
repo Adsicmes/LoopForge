@@ -172,7 +172,7 @@ func TestCatalogSandboxDependencyAndScopeHelpers(t *testing.T) {
 
 func TestRunEvalBusyApplyAndCloneHelpers(t *testing.T) {
 	f := cvBNewHTTPFixture(t)
-	if _, err := f.s.UpdateUserCredentials(f.user.ID, repo.UserCredentialUpdate{CodeBuddyAPIKey: "key"}); err != nil {
+	if _, err := f.s.UpdateUserCredentials(f.user.ID, testOpenCodeCredentialUpdate()); err != nil {
 		t.Fatal(err)
 	}
 	if err := f.s.PutSandbox(domain.SandboxProfile{ID: "cvb-r2-eval-sandbox", Name: "Eval sandbox", ProjectID: "platform", Driver: "local"}); err != nil {

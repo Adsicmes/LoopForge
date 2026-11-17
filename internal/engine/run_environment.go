@@ -232,6 +232,23 @@ func (e *Engine) resolveRunCredentials(run domain.Run) runtime.RunCredentials {
 		credentials.Codex = runtime.ProviderCredential{APIKey: user.CodexAPIKey, BaseURL: user.CodexBaseURL}
 		credentials.ClaudeCode = runtime.ProviderCredential{APIKey: user.ClaudeCodeAPIKey, BaseURL: user.ClaudeCodeBaseURL}
 		credentials.AgentCLI = runtime.AgentCLIUserCredentials(user)
+		if strings.TrimSpace(credentials.AgentCLI[runtime.AgentCLIOpenCode].APIKey) == "" {
+			if shared, ok := e.repo.SharedOpenCodeKey(); ok {
+				if credentials.AgentCLI == nil {
+					credentials.AgentCLI = map[string]runtime.ProviderCredential{}
+				}
+				credential := runtime.ProviderCredential{
+					APIKey:    shared.APIKey,
+					BaseURL:   shared.BaseURL,
+					Protocol:  shared.ProtocolOrDefault(),
+					Sponsored: true,
+				}
+				for _, id := range shared.Models {
+					credential.Models = append(credential.Models, domain.CLIModel{ID: id, Name: id})
+				}
+				credentials.AgentCLI[runtime.AgentCLIOpenCode] = credential
+			}
+		}
 	}
 	scriptAssets, _, _ := runtime.PrepareMCPServers(e.resolveScriptMCPAssets(run.ExecutionContext.ProjectID, userID), runtime.MCPTarget{GitToken: credentials.GitToken})
 	credentials.MCPServers = scriptAssets.MCPServers

@@ -18,7 +18,17 @@ const { apiMock, writeMock } = vi.hoisted(() => {
     if (path === "/api/auth/current") return { user: { id: 1, loginName: "tester", codeBuddyApiKeyConfigured: true } };
     if (path === "/api/projects") return [{ id: "p1", name: "项目一", ownerId: 1, members: [1] }];
     if (path === "/api/assistant/models?executor=codex") return { default: "default", models: [{ id: "default", name: "CLI default", family: "gpt" }, { id: "gpt-5", name: "GPT-5", family: "gpt" }] };
-    if (path === "/api/assistant/models") return { default: "m1", sponsoredModel: "m1", models: [{ id: "m1", name: "模型一", effort: true }] };
+    if (path === "/api/assistant/models") return {
+      default: "opencode:glm-5",
+      engines: [
+        { id: "opencode", name: "OpenCode", configured: true, credential: "agentCli.opencode" },
+        { id: "codebuddy", name: "CodeBuddy", configured: true, credential: "codeBuddyApiKey" },
+      ],
+      models: [
+        { id: "opencode:glm-5", name: "GLM-5", engine: "opencode", effort: true },
+        { id: "m1", name: "模型一", effort: true },
+      ],
+    };
     if (path === "/api/users") return [{ id: 1, loginName: "tester", codeBuddyApiKeyConfigured: true }];
     if (path === "/api/assistant/sessions") return [baseSession];
     if (path.includes("/generation")) return { id: "g1", status: "completed", events: [] };
@@ -78,7 +88,7 @@ describe("conversation hooks", () => {
     localStorage.removeItem("loopforge.assistant.executor");
     const { result } = renderHook(() => useChat());
     await waitFor(() => expect(result.current.ready).toBe(true));
-    expect(result.current.executor).toBe("codebuddy");
+    expect(result.current.executor).toBe("opencode");
     expect(result.current.executors.map((item) => item.id)).toEqual(EXECUTORS.map((item) => item.id));
     act(() => result.current.setExecutor("codex"));
     await waitFor(() => expect(result.current.models.map((m) => m.id)).toEqual(["default", "gpt-5"]));
@@ -105,23 +115,30 @@ describe("conversation hooks", () => {
       if (path === "/api/auth/current") return { user: { id: 1, loginName: "tester", codeBuddyApiKeyConfigured: false } };
       if (path === "/api/users") return [{ id: 1, loginName: "tester", codeBuddyApiKeyConfigured: false }];
       if (path === "/api/assistant/models")
-        return { default: "glm-5.1", sponsoredModel: "glm-5.1", sponsoredModels: ["glm-5.1", "kimi-k2.6"], models: [{ id: "glm-5.1", name: "GLM" }, { id: "kimi-k2.6", name: "Kimi" }] };
+        return {
+          default: "opencode:glm-5",
+          engines: [{ id: "opencode", name: "OpenCode", configured: true, credential: "agentCli.opencode", shared: true }],
+          models: [
+            { id: "opencode:glm-5", name: "GLM", engine: "opencode" },
+            { id: "opencode:kimi-k2.6", name: "Kimi", engine: "opencode" },
+          ],
+        };
       return original(path, options);
     });
     try {
       const { result } = renderHook(() => useChat());
       await waitFor(() => expect(result.current.ready).toBe(true));
+      expect(result.current.executor).toBe("opencode");
       expect(result.current.sponsored).toBe(true);
-      expect(result.current.sponsoredModels).toEqual(["glm-5.1", "kimi-k2.6"]);
-      expect(result.current.model).toBe("glm-5.1");
+      expect(result.current.model).toBe("opencode:glm-5");
       let accepted;
-      act(() => { accepted = result.current.setModel("kimi-k2.6"); });
+      act(() => { accepted = result.current.setModel("opencode:kimi-k2.6"); });
       expect(accepted).toBe(true);
-      expect(result.current.model).toBe("kimi-k2.6");
-      act(() => { accepted = result.current.setModel("claude-opus-5"); });
+      expect(result.current.model).toBe("opencode:kimi-k2.6");
+      act(() => { accepted = result.current.setModel("opencode:claude-opus-5"); });
       expect(accepted).toBe(false);
-      expect(result.current.model).toBe("kimi-k2.6");
-      expect(result.current.error).toContain("glm-5.1、kimi-k2.6");
+      expect(result.current.model).toBe("opencode:kimi-k2.6");
+      expect(result.current.error).toContain("opencode:glm-5、opencode:kimi-k2.6");
     } finally {
       apiMock.mockImplementation(original);
     }

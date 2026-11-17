@@ -91,16 +91,23 @@ function sopRunRequirements(w){
   const providers=new Set();
   for(const node of nodes.filter(n=>n.type==='agent')){
     const role=(state.data?.agents||[]).find(a=>a.id===node.agentId);
-    const id=role?.executorId||node.executorId||'codebuddy';
+    const id=role?.executorId||node.executorId||'opencode';
     const kind=(state.data?.executors||[]).find(e=>e.id===id)?.kind||id;
     if(['codebuddy','codex','claude','claude-code','opencode','cursor','agy','kimi','pi','dsh','zcode'].includes(kind))providers.add(kind==='claude'?'claude-code':kind);
   }
   const agentLabels={opencode:'OpenCode',cursor:'Cursor CLI',agy:'Antigravity',kimi:'Kimi Code',pi:'Pi',dsh:'DeepSeek Harness',zcode:'ZCode'};
+  const openCodeShared=window.AgentFlowAssistantModels?.engineShared?.('opencode')||false;
+  const openCodeConfigured=window.AgentFlowAssistantModels?.engineConfigured?.('opencode')||false;
   for(const kind of providers){
     const known={codebuddy:['CodeBuddy','codeBuddyApiKey','codeBuddyApiKeyConfigured'],codex:['Codex','codexApiKey','codexApiKeyConfigured'],'claude-code':['Claude Code','claudeCodeApiKey','claudeCodeApiKeyConfigured']}[kind];
     const [label,field,flag]=known||[agentLabels[kind]||kind,'agentCli.'+kind,'agentCliConfigured'];
     if(!known){
-      rows.push({key:'run-key-'+kind,field,fix:'settings',fixLabel:'去个人配置配置',label:label+' API Key',ok:!!user.agentCliCredentials?.[kind]?.apiKeyConfigured,hint:lfT('Agent 节点使用 '+label+'，请在个人配置里配置对应 API Key。','Agent nodes use '+label+'. Configure its API key in Settings.')});
+      const personal=!!user.agentCliCredentials?.[kind]?.apiKeyConfigured;
+      const ok=kind==='opencode'?(personal||openCodeConfigured||openCodeShared):personal;
+      const hint=kind==='opencode'&&(openCodeConfigured||openCodeShared)
+        ?lfT('Agent 节点使用 OpenCode，当前使用平台共享 Key。','Agent nodes use OpenCode on the platform shared key.')
+        :lfT('Agent 节点使用 '+label+'，请在个人配置里配置对应 API Key。','Agent nodes use '+label+'. Configure its API key in Settings.');
+      rows.push({key:'run-key-'+kind,field,fix:'settings',fixLabel:'去个人配置配置',label:label+' API Key',ok,hint});
       continue;
     }
     rows.push({key:'run-key-'+kind,field,fix:'settings',fixLabel:'去个人配置配置',label:label+' API Key',ok:!!user[flag],hint:lfT('Agent 节点使用 '+label+'，请在个人配置里配置对应 API Key。','Agent nodes use '+label+'. Configure its API key in Settings.')});

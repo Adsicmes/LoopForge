@@ -2,7 +2,6 @@ package httpapi
 
 import (
 	"agentflow/internal/domain"
-	"agentflow/internal/repo"
 	"context"
 	"errors"
 	"net/http"
@@ -236,7 +235,7 @@ func TestRunEvalLocalEntityReuseBranches(t *testing.T) {
 
 func TestRunEvalHTTPStartSuccessAndBusy(t *testing.T) {
 	f := cvBNewHTTPFixture(t)
-	if _, err := f.s.UpdateUserCredentials(f.user.ID, repo.UserCredentialUpdate{CodeBuddyAPIKey: "cvb-test-key"}); err != nil {
+	if _, err := f.s.UpdateUserCredentials(f.user.ID, testOpenCodeCredentialUpdate()); err != nil {
 		t.Fatal(err)
 	}
 	run := domain.Run{ID: "cvb-r2-eval", Status: "succeeded",
@@ -249,7 +248,7 @@ func TestRunEvalHTTPStartSuccessAndBusy(t *testing.T) {
 		return domain.RunEvalResult{Score: 88, Passed: true}, nil
 	})
 	t.Cleanup(func() { setRunEvalExecForTest(nil) })
-	rec := cvBRequest(t, f, http.MethodPost, "/api/runs/"+run.ID+"/eval", map[string]any{"model": "gpt-5.6-sol"}, true)
+	rec := cvBRequest(t, f, http.MethodPost, "/api/runs/"+run.ID+"/eval", map[string]any{"model": "opencode:gpt-5.6-sol"}, true)
 	if rec.Code != http.StatusAccepted {
 		t.Fatalf("start eval = %d: %s", rec.Code, rec.Body.String())
 	}
@@ -399,7 +398,7 @@ func TestRunEvalLiveStreamAndPersistenceErrors(t *testing.T) {
 
 func TestRunEvalRecoveryAndApplyConflicts(t *testing.T) {
 	f := cvBNewHTTPFixture(t)
-	if _, err := f.s.UpdateUserCredentials(f.user.ID, repo.UserCredentialUpdate{CodeBuddyAPIKey: "key"}); err != nil {
+	if _, err := f.s.UpdateUserCredentials(f.user.ID, testOpenCodeCredentialUpdate()); err != nil {
 		t.Fatal(err)
 	}
 	run := domain.Run{ID: "cvb-r2-eval-recovery-http", Status: "succeeded", Nodes: map[string]*domain.NodeRun{}}

@@ -20,8 +20,8 @@ func botFixture(t *testing.T) (*repo.Store, *assistantHandlers, domain.Notificat
 	}
 	t.Cleanup(func() { s.Close() })
 	t.Setenv("AGENTFLOW_ASSISTANT_SESSION_DIR", t.TempDir())
-	s.PutUser(domain.User{ID: 42, LoginName: "bot-owner", CodeBuddyAPIKey: "owner-key", CodeBuddyInternetEnvironment: "ioa"})
-	s.PutUser(domain.User{ID: 43, LoginName: "other-user", CodeBuddyAPIKey: "other-key", CodeBuddyInternetEnvironment: "ioa"})
+	s.PutUser(testOpenCode(domain.User{ID: 42, LoginName: "bot-owner", CodeBuddyAPIKey: "owner-key", CodeBuddyInternetEnvironment: "ioa"}))
+	s.PutUser(testOpenCode(domain.User{ID: 43, LoginName: "other-user", CodeBuddyAPIKey: "other-key", CodeBuddyInternetEnvironment: "ioa"}))
 	s.PutProject(domain.Project{ID: "p", OwnerID: 42, Members: []domain.ProjectMember{{UserID: 43, Role: "member"}}})
 	bot := domain.NotificationBot{ID: "b", BotID: "external", ProjectID: "p", OwnerID: 42, Enabled: true, InteractionEnabled: true, Model: domain.DefaultNotificationReportModel}
 	if err = s.SaveNotificationBot(bot, "secret"); err != nil {
@@ -40,7 +40,7 @@ func botFixture(t *testing.T) (*repo.Store, *assistantHandlers, domain.Notificat
 func TestBotUsesBoundSenderIdentityAutoModeAndSharedChatContext(t *testing.T) {
 	s, h, bot := botFixture(t)
 	h.generate = func(ctx context.Context, prompt string, user domain.User) (string, error) {
-		if user.ID != 43 || user.CodeBuddyAPIKey != "other-key" || user.CodeBuddyInternetEnvironment != "ioa" {
+		if user.ID != 43 || user.AgentCLICredentials["opencode"].APIKey != "sk-test-opencode" || user.CodeBuddyInternetEnvironment != "ioa" {
 			t.Fatal("wrong credentials")
 		}
 		if !strings.Contains(prompt, "当前审批模式为「完全权限」") || !strings.Contains(prompt, "发送者 new-wecom-user") || !strings.Contains(prompt, "历史回复") {
@@ -185,7 +185,7 @@ func TestBotUnboundAndMissingCredentialsNeverUseOwner(t *testing.T) {
 	if _, err := h.botExecutionUser(bot, "unknown"); err == nil {
 		t.Fatal("unbound user used owner")
 	}
-	s.UpdateUserCredentials(43, repo.UserCredentialUpdate{CodeBuddyAPIKeyClear: true})
+	s.UpdateUserCredentials(43, repo.UserCredentialUpdate{CodeBuddyAPIKeyClear: true, AgentCLICredentials: map[string]repo.AgentCLICredentialUpdate{"opencode": {APIKeyClear: true}}})
 	reply, err = h.generateBotReply(context.Background(), bot, domain.BotConversation{}, nil, domain.BotInteraction{SenderID: "new-wecom-user", Content: "创建需求"})
 	if err != nil || !strings.Contains(reply, "你的平台账号尚未配置") {
 		t.Fatal(reply, err)

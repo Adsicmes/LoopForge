@@ -88,7 +88,6 @@ type assistantHandlers struct {
 	api           http.Handler
 	generate      func(context.Context, string, domain.User) (string, error)
 	review        func(context.Context, assistantApprovalInput, domain.User, string) (assistantApprovalReview, error)
-	reviewCatalog func(string) assistantModelCatalog
 	titleSummary  func(context.Context, domain.User, string) (string, error)
 }
 
@@ -182,7 +181,7 @@ func (h *assistantHandlers) chat(c *gin.Context) {
 		return
 	}
 	catalogEngine, _ := assistantModelEngine(req.Model)
-	catalog := assistantChatCatalog(c.Request.Context(), user.CodeBuddyInternetEnvironment, nil)
+	catalog := assistantChatCatalog(c.Request.Context(), user.CodeBuddyInternetEnvironment)
 	if catalogEngine == assistantEngineCodeBuddy {
 		catalog = h.chatCatalog(c.Request.Context(), user)
 	}
@@ -1405,7 +1404,7 @@ func runAssistantCLI(ctx context.Context, req assistantCLIRequest, user domain.U
 	engine, engineModel := assistantModelEngine(req.Model)
 	attempt := assistantDiagnosticsFrom(ctx).begin(engine, engineModel, req.Resume, user)
 	defer func() { attempt.finish(returnedErr) }()
-	if engine != assistantEngineCodeBuddy && (req.ReportOnly || (!req.Native && !req.ReviewOnly)) {
+	if engine != assistantEngineCodeBuddy && engine != runtime.AgentCLIOpenCode && (req.ReportOnly || (!req.Native && !req.ReviewOnly)) {
 		return "", "", errAssistantEngineUnsupported
 	}
 	var bin string

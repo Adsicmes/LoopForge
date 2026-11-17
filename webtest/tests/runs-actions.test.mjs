@@ -228,7 +228,7 @@ test('run helpers merge streams and format timing, output, logs, telemetry, prev
     state.activeRun=evalRun;state.selectedRun='run-x';state.currentUser.codeBuddyApiKeyConfigured=true;
   `);
   await app.evaluate(`startRunEval(state.activeRun)`);
-  assert.equal(app.router.calls.find(c => c.method === 'POST' && c.path === '/api/runs/run-x/eval').body.model, 'model-x');
+  assert.equal(app.router.calls.find(c => c.method === 'POST' && c.path === '/api/runs/run-x/eval').body.model, 'opencode:model-x');
   app.evaluate(`state.runEvalStream?.close();state.runEvalStream=null;state.runEvalBusy=false`);
   app.evaluate(`
     state.data.runs=[{id:'run-select',status:'succeeded',workflowId:'flow-1',createdAt:'2026-02-01',nodes:{}}];

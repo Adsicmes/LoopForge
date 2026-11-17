@@ -762,61 +762,58 @@ paths:
         "400": {description: Invalid password or not a password account}
         "403": {description: Platform administrator access or same-origin request required}
         "404": {description: Unknown account}
-  /api/platform/codebuddy-key:
+  /api/platform/opencode-key:
     get:
       tags: [Users]
-      operationId: getPlatformCodeBuddyKey
-      summary: Show the shared CodeBuddy API Key settings
-      description: Platform administrators only. The key itself is never returned.
-      parameters:
-        - name: environment
-          in: query
-          description: Network environment whose models to list in catalog; defaults to the saved one.
-          schema: {type: string, enum: ["", internal, ioa]}
+      operationId: getPlatformOpenCodeKey
+      summary: Show the shared OpenCode credential
+      description: >-
+        Platform administrators only. The key itself is never returned. The catalog lists models the
+        stored Base URL advertises; it is advisory because the administrator may also type model IDs.
       responses:
         "200":
-          description: Shared key status and the models offered in the environment
+          description: Shared credential status and discovered models
           content:
             application/json:
-              schema: {$ref: "#/components/schemas/PlatformCodeBuddyKey"}
+              schema: {$ref: "#/components/schemas/PlatformOpenCodeKey"}
         "403": {description: Platform administrator access required}
     put:
       tags: [Users]
-      operationId: savePlatformCodeBuddyKey
-      summary: Share a CodeBuddy API Key with users who have none
+      operationId: savePlatformOpenCodeKey
+      summary: Share an OpenCode credential with users who have none
       description: >-
         Platform administrators only; browser requests must be same-origin. Users without their own key
-        chat and run SOPs on this key, limited to models (the first is the default). It replaces the
-        AGENTFLOW_ASSISTANT_SPONSOR_LOGIN account while configured.
+        chat and run SOPs on this credential, limited to the models listed (the first is the default).
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [models]
+              required: [baseUrl, models]
               properties:
                 apiKey: {type: string, writeOnly: true, description: Blank keeps the stored key.}
-                internetEnvironment: {type: string, description: "Empty for International, \"internal\" for China, \"ioa\" for iOA."}
+                baseUrl: {type: string, description: OpenCode gateway Base URL (http or https).}
+                protocol: {type: string, enum: [chat, responses, messages], description: "Defaults to chat."}
                 models: {type: array, minItems: 1, maxItems: 32, items: {type: string}}
       responses:
         "200":
           description: Saved settings
           content:
             application/json:
-              schema: {$ref: "#/components/schemas/PlatformCodeBuddyKey"}
-        "400": {description: Missing key or models, or an invalid environment or model ID}
+              schema: {$ref: "#/components/schemas/PlatformOpenCodeKey"}
+        "400": {description: Missing key or Base URL, no models, or an invalid protocol or model ID}
         "403": {description: Platform administrator access or same-origin request required}
     delete:
       tags: [Users]
-      operationId: clearPlatformCodeBuddyKey
-      summary: Stop sharing the CodeBuddy API Key
+      operationId: clearPlatformOpenCodeKey
+      summary: Stop sharing the OpenCode credential
       responses:
         "200":
           description: Settings after clearing
           content:
             application/json:
-              schema: {$ref: "#/components/schemas/PlatformCodeBuddyKey"}
+              schema: {$ref: "#/components/schemas/PlatformOpenCodeKey"}
         "403": {description: Platform administrator access or same-origin request required}
   /api/business-domains:
     get:
@@ -4230,26 +4227,24 @@ components:
         password: {type: boolean, description: False for accounts that sign in through GitHub or a gateway}
         codeBuddyApiKeyConfigured: {type: boolean}
         createdAt: {type: string, format: date-time}
-    PlatformCodeBuddyKey:
+    PlatformOpenCodeKey:
       type: object
       properties:
         configured: {type: boolean}
-        internetEnvironment: {type: string}
+        baseUrl: {type: string}
+        protocol: {type: string, enum: [chat, responses, messages]}
         models: {type: array, items: {type: string}, description: Allowed models, the default first}
         updatedAt: {type: string, format: date-time}
         updatedBy: {type: string}
-        legacySponsor: {type: string, description: Account named by AGENTFLOW_ASSISTANT_SPONSOR_LOGIN, used while no key is configured here}
-        legacySponsorModel: {type: string}
         catalog:
           type: array
-          description: Models offered in the requested network environment (GET only)
+          description: Models the stored Base URL advertises (GET only)
           items:
             type: object
             properties:
               id: {type: string}
               name: {type: string}
               family: {type: string}
-              credits: {type: string}
     User:
       type: object
       required: [id, loginName]
@@ -5255,14 +5250,14 @@ components:
           description: Optional 5-field cron (minute hour day month weekday) in Asia/Shanghai. When set, intervalSec is ignored.
         assistantPrompt:
           type: string
-          description: User-written CodeBuddy prompt executed at schedule time. Required for independent AI jobs; subscriptions resolve their pinned shared version instead. Cleared on trigger jobs.
+          description: User-written assistant prompt executed at schedule time. Required for independent AI jobs; subscriptions resolve their pinned shared version instead. Cleared on trigger jobs.
         assistantModel:
           type: string
-          description: CodeBuddy model id from GET /api/assistant/models.
+          description: Model id from GET /api/assistant/models, such as opencode:<model>; empty uses the platform's primary executor.
         ownerUserId:
           type: integer
           format: int64
-          description: Project owner whose CodeBuddy key runs assistantPrompt
+          description: Project owner whose CLI credentials run assistantPrompt
         lastRunAt:
           type: string
           format: date-time

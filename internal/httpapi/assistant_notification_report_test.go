@@ -34,14 +34,14 @@ func TestSOPReportUsesResponsibleUserAndMCPSubmission(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	store.PutUser(domain.User{ID: 42, LoginName: "executor", CodeBuddyAPIKey: "executor-key", CodeBuddyInternetEnvironment: "ioa"})
+	store.PutUser(testOpenCode(domain.User{ID: 42, LoginName: "executor", CodeBuddyAPIKey: "executor-key", CodeBuddyInternetEnvironment: "ioa"}))
 	store.PutUser(domain.User{ID: 43, LoginName: "owner", CodeBuddyAPIKey: "owner-key"})
 	store.PutProject(domain.Project{ID: "report-project", OwnerID: 43})
 	h := &assistantHandlers{deps: &deps{repo: store}}
 	calls := 0
 	h.generate = func(ctx context.Context, prompt string, user domain.User) (string, error) {
 		calls++
-		if user.ID != 42 || user.CodeBuddyAPIKey != "executor-key" || user.CodeBuddyInternetEnvironment != "ioa" {
+		if user.ID != 42 || user.AgentCLICredentials["opencode"].APIKey != "sk-test-opencode" || user.CodeBuddyInternetEnvironment != "ioa" {
 			t.Fatal("wrong execution credentials")
 		}
 		session := activeReportSession(t)
@@ -93,7 +93,7 @@ func TestSOPReportUsesResponsibleUserAndMCPSubmission(t *testing.T) {
 func TestSOPReportMissingSubmissionRetriesWithoutParsingText(t *testing.T) {
 	store, _ := repo.OpenTest()
 	defer store.Close()
-	store.PutUser(domain.User{ID: 42, LoginName: "executor", CodeBuddyAPIKey: "key"})
+	store.PutUser(testOpenCode(domain.User{ID: 42, LoginName: "executor", CodeBuddyAPIKey: "key"}))
 	h := &assistantHandlers{deps: &deps{repo: store}}
 	calls := 0
 	h.generate = func(ctx context.Context, prompt string, user domain.User) (string, error) {

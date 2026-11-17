@@ -12,17 +12,17 @@ import (
 	"time"
 
 	"agentflow/internal/domain"
+	"agentflow/internal/runtime"
 
 	"github.com/gin-gonic/gin"
 )
 
 const assistantDefaultModel = "default"
 
-// assistantChatDefaultModel is the model the legacy sponsor account lends.
-// New chat conversations preselect the shared key's default model when one is
-// configured; otherwise chat uses the operator's default, like clarification,
-// scheduled prompts, reports and executors.
-const assistantChatDefaultModel = assistantSponsoredModel
+// assistantChatDefaultModel is the built-in CodeBuddy model older conversations
+// and live tests pin. New chats default to the platform's primary executor
+// (OpenCode) through the catalog's engine list.
+const assistantChatDefaultModel = "deepseek-v4.1-flash"
 
 type assistantModel struct {
 	ID      string   `json:"id"`
@@ -37,9 +37,9 @@ type assistantModel struct {
 type assistantModelCatalog struct {
 	Default string           `json:"default"`
 	Models  []assistantModel `json:"models"`
-	// SponsoredModels is set when users without their own CodeBuddy API Key
-	// may still chat on the platform's shared key, limited to these models;
-	// SponsoredModel is the first (the default).
+	// SponsoredModels is legacy: the platform no longer lends a CodeBuddy key,
+	// so both fields stay empty. They remain in the JSON shape for older
+	// clients that still read them.
 	SponsoredModel  string   `json:"sponsoredModel,omitempty"`
 	SponsoredModels []string `json:"sponsoredModels,omitempty"`
 	// Engines lists the CLIs a signed-in user can switch between.
@@ -179,8 +179,12 @@ func cachedCLIModels(environment string) []string {
 
 // models returns the chat model catalog for the caller's CodeBuddy
 // environment. Guests get the configured models only; actually chatting still
-// requires login plus a configured or sponsored CodeBuddy key.
+// requires login plus a configured key for the chosen executor.
 func (h *assistantHandlers) models(c *gin.Context) {
+	user, signedIn := domain.User{}, false
+	if current, ok := h.requestUser(c.Request, true); ok {
+		user, signedIn = h.repo.User(current.ID)
+	}
 	if raw := strings.TrimSpace(c.Query("executor")); raw != "" && assistantExecutor(raw) != "codebuddy" {
 		id := assistantExecutor(raw)
 		catalog, ok := executorModelCatalogs()[id]
@@ -189,6 +193,19 @@ func (h *assistantHandlers) models(c *gin.Context) {
 			return
 		}
 		result := assistantModelCatalog{Default: "default", Models: []assistantModel{{ID: "default", Name: "CLI default", Family: map[string]string{"codex": "gpt", "claude": "claude"}[id]}}}
+		if signedIn && id == runtime.AgentCLIOpenCode {
+			user = h.assistantOpenCodeUser(user)
+			for _, model := range assistantEngineModels(c.Request.Context(), user) {
+				if model.Engine == id {
+					result.Models = append(result.Models, model)
+					if result.Default == "default" {
+						result.Default = model.ID
+					}
+				}
+			}
+			c.JSON(200, result)
+			return
+		}
 		for _, item := range catalog.Models {
 			result.Models = append(result.Models, assistantModel{ID: item.ID, Name: item.Name, Family: map[string]string{"codex": "gpt", "claude": "claude"}[id]})
 		}
@@ -197,59 +214,43 @@ func (h *assistantHandlers) models(c *gin.Context) {
 	}
 
 	var catalog assistantModelCatalog
-	key, shared := h.assistantSharedKey()
-	user, signedIn := domain.User{}, false
-	if current, ok := h.requestUser(c.Request, true); ok {
-		user, signedIn = h.repo.User(current.ID)
-	}
 	switch {
-	case signedIn && shared && strings.TrimSpace(user.CodeBuddyAPIKey) == "":
-		// Chat runs on the shared key, so list what that key's environment offers.
-		refreshCLIModels(c.Request.Context(), key.InternetEnvironment, key.APIKey)
-		catalog = restrictAssistantCatalog(assistantChatCatalog(c.Request.Context(), key.InternetEnvironment, key.Models), key.Models)
 	case signedIn:
-		// A user's own key keeps their environment's models and default: the
-		// shared key's default may not exist in that environment.
+		// A user's own key keeps their environment's models and default.
 		refreshCLIModels(c.Request.Context(), user.CodeBuddyInternetEnvironment, user.CodeBuddyAPIKey)
-		catalog = assistantChatCatalog(c.Request.Context(), user.CodeBuddyInternetEnvironment, nil)
+		catalog = assistantChatCatalog(c.Request.Context(), user.CodeBuddyInternetEnvironment)
 	default:
-		catalog = assistantChatCatalog(c.Request.Context(), "", nil)
-	}
-	if shared {
-		catalog.SponsoredModel, catalog.SponsoredModels = key.Models[0], key.Models
+		catalog = assistantChatCatalog(c.Request.Context(), "")
 	}
 	if signedIn {
+		_, hasSharedOpenCode := h.assistantSharedOpenCode()
+		personalOpenCode := strings.TrimSpace(user.AgentCLICredentials[runtime.AgentCLIOpenCode].APIKey) != ""
+		user = h.assistantOpenCodeUser(user)
 		catalog.Models = append(catalog.Models, assistantEngineModels(c.Request.Context(), user)...)
 		h.saveCursorCatalog(user)
-		catalog.Engines = assistantEngineOptions(user, shared && strings.TrimSpace(user.CodeBuddyAPIKey) == "")
+		catalog.Engines = assistantEngineOptions(user, hasSharedOpenCode && !personalOpenCode)
+		// OpenCode is the primary executor. Its first configured model becomes
+		// the composer's default; without an OpenCode credential the default
+		// still points at OpenCode so the turn fails with a configuration
+		// error instead of silently falling back to CodeBuddy.
+		if key, _ := assistantEngineCredential(user, runtime.AgentCLIOpenCode); key != "" {
+			for _, model := range catalog.Models {
+				if model.Engine == runtime.AgentCLIOpenCode {
+					catalog.Default = model.ID
+					break
+				}
+			}
+		} else {
+			catalog.Default = runtime.AgentCLIOpenCode + ":default"
+		}
 	}
 	c.JSON(200, catalog)
 }
 
-// assistantChatCatalog is the catalog used by chat conversations: the same
-// models, with the shared key's models listed and its default preselected.
-// Pass shared only for turns that run on the shared key (see chatCatalog).
-func assistantChatCatalog(ctx context.Context, env string, shared []string) assistantModelCatalog {
-	catalog := loadAssistantModels(ctx, env)
-	if len(shared) == 0 {
-		return catalog
-	}
-	listed := map[string]bool{}
-	for _, model := range catalog.Models {
-		listed[model.ID] = true
-	}
-	for _, id := range shared {
-		if !listed[id] {
-			name := id
-			if id == assistantChatDefaultModel {
-				name = "Deepseek-V4.1-Flash"
-			}
-			catalog.Models = append(catalog.Models, assistantListedModel(id, name, ""))
-			listed[id] = true
-		}
-	}
-	catalog.Default = shared[0]
-	return catalog
+// assistantChatCatalog is the catalog used by chat conversations: CodeBuddy
+// models from the user's network environment.
+func assistantChatCatalog(ctx context.Context, env string) assistantModelCatalog {
+	return loadAssistantModels(ctx, env)
 }
 
 // loadAssistantModels never blocks on discovery; validation accepts models the

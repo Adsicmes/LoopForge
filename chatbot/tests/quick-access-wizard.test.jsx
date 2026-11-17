@@ -10,14 +10,22 @@ const { project, user, apiMock, writeMock, mockState } = vi.hoisted(() => {
   };
   const user = {
     id: 1, loginName: "tester", chineseName: "测试",
-    gitTokenConfigured: true, codeBuddyApiKeyConfigured: true,
+    gitTokenConfigured: true,
+    agentCliCredentials: {
+      opencode: {
+        apiKeyConfigured: true,
+        baseUrl: "https://opencode.example/v1",
+        protocol: "chat",
+        models: [{ id: "glm-5", name: "GLM-5" }],
+      },
+    },
   };
   const apiMock = vi.fn(async (path) => {
   if (path === "/api/users" && mockState.users) return mockState.users();
   if (path === "/api/users")
     return [mockState.unconfigured ? {
       id: 1, loginName: "tester", chineseName: "测试",
-      gitTokenConfigured: false, codeBuddyApiKeyConfigured: false,
+      gitTokenConfigured: false,
     } : user];
   if (path === "/api/projects") return [project];
   if (path === "/api/repositories") return [];
@@ -145,7 +153,7 @@ describe("QuickAccessWizard", () => {
         user={user}
         projects={[project]}
         projectId="p1"
-        sponsoredModel="m1"
+        openCodeShared
         onClose={vi.fn()}
         onCompleted={completed}
         onOpenView={vi.fn()}
@@ -168,7 +176,7 @@ describe("QuickAccessWizard", () => {
     mockState.sshKeys = [{ id: "gitlab", name: "GitLab", host: "gitlab.example.org:22" }];
     const userAction = userEvent.setup();
     try {
-      render(<QuickAccessWizard open user={{ ...user, gitSshKeyConfigured: true }} projects={[project]} projectId="p1" sponsoredModel="m1" onClose={vi.fn()} onCompleted={vi.fn()} onOpenView={vi.fn()} />);
+      render(<QuickAccessWizard open user={{ ...user, gitSshKeyConfigured: true }} projects={[project]} projectId="p1" openCodeShared onClose={vi.fn()} onCompleted={vi.fn()} onOpenView={vi.fn()} />);
       await screen.findByRole("dialog");
       await waitFor(() => expect(apiMock).toHaveBeenCalledWith("/api/users/1/git-ssh-keys"));
       await userAction.click(screen.getByRole("button", { name: "下一步" }));
@@ -220,7 +228,7 @@ describe("QuickAccessWizard", () => {
     );
     await screen.findByRole("dialog");
     await userAction.click(screen.getByRole("button", { name: "下一步" }));
-    expect(screen.getByRole("alert")).toHaveTextContent("请先配置 GitHub Git Token、Git SSH 密钥或 CodeBuddy API Key");
+    expect(screen.getByRole("alert")).toHaveTextContent("请先配置 GitHub Git Token、Git SSH 密钥或 OpenCode 凭据");
     expect(screen.queryByText(/工蜂/)).toBeNull();
     await userAction.click(screen.getByText("使用访问令牌（高级）"));
     await userAction.type(
@@ -236,7 +244,7 @@ describe("QuickAccessWizard", () => {
     mockState.unconfigured = false;
   });
 
-  test("saves a typed CodeBuddy key when moving past the credential step", async () => {
+  test("saves a typed OpenCode key when moving past the credential step", async () => {
     mockState.unconfigured = true;
     writeMock.mockClear();
     const userAction = userEvent.setup();
@@ -254,19 +262,23 @@ describe("QuickAccessWizard", () => {
       />,
     );
     await screen.findByRole("dialog");
-    await userAction.type(screen.getByPlaceholderText("粘贴 CodeBuddy API Key"), "cb-key");
+    await userAction.type(screen.getByPlaceholderText("粘贴 OpenCode API Key"), "sk-opencode");
     await userAction.click(screen.getByRole("button", { name: "下一步" }));
     await screen.findByText("项目与仓库", { selector: "h3" });
     expect(writeMock).toHaveBeenCalledWith(
       "/api/users/1/credentials",
-      { codeBuddyApiKey: "cb-key", codeBuddyInternetEnvironment: "" },
+      {
+        agentCliCredentials: {
+          opencode: { apiKey: "sk-opencode", baseUrl: "", protocol: "chat" },
+        },
+      },
       "PUT",
     );
     expect(credentialsSaved).toHaveBeenCalledTimes(1);
     mockState.unconfigured = false;
   });
 
-  test("saves the CodeBuddy key with the chosen network environment and links to its key page", async () => {
+  test("saves the OpenCode endpoint and protocol with the key", async () => {
     mockState.unconfigured = true;
     writeMock.mockClear();
     const userAction = userEvent.setup();
@@ -282,101 +294,32 @@ describe("QuickAccessWizard", () => {
       />,
     );
     await screen.findByRole("dialog");
-    const keyLink = screen.getByRole("link", { name: /获取 API Key/ });
-    expect(keyLink).toHaveAttribute("href", "https://www.codebuddy.ai/profile/keys");
-    await userAction.click(screen.getByLabelText("CodeBuddy 网络环境"));
-    await userAction.click(screen.getByRole("option", { name: /国内站/ }));
-    expect(keyLink).toHaveAttribute("href", "https://copilot.tencent.com/profile/");
-    await userAction.type(screen.getByPlaceholderText("粘贴 CodeBuddy API Key"), "sk-deepseek");
-    expect(screen.getByText(/第三方模型的 Key/)).toBeInTheDocument();
+    await userAction.type(
+      screen.getByLabelText("OpenCode Base URL"),
+      "https://gw.example/v1",
+    );
+    await userAction.click(screen.getByLabelText("OpenCode 协议"));
+    await userAction.click(screen.getByRole("option", { name: /Responses/ }));
+    await userAction.type(screen.getByPlaceholderText("粘贴 OpenCode API Key"), "sk-gateway");
     await userAction.click(screen.getByRole("button", { name: "下一步" }));
     await screen.findByText("项目与仓库", { selector: "h3" });
     expect(writeMock).toHaveBeenCalledWith(
       "/api/users/1/credentials",
-      { codeBuddyApiKey: "sk-deepseek", codeBuddyInternetEnvironment: "internal" },
+      {
+        agentCliCredentials: {
+          opencode: {
+            apiKey: "sk-gateway",
+            baseUrl: "https://gw.example/v1",
+            protocol: "responses",
+          },
+        },
+      },
       "PUT",
     );
     mockState.unconfigured = false;
   });
 
-  test("rewrites an old china environment to internal when moving past the credential step", async () => {
-    mockState.users = () => [{ ...user, codeBuddyInternetEnvironment: "china" }];
-    writeMock.mockClear();
-    const userAction = userEvent.setup();
-    try {
-      render(
-        <QuickAccessWizard
-          open
-          user={user}
-          projects={[project]}
-          projectId="p1"
-          onClose={vi.fn()}
-          onCompleted={vi.fn()}
-          onOpenView={vi.fn()}
-        />,
-      );
-      await screen.findByRole("dialog");
-      expect(await screen.findByText(/「china」无法识别/)).toBeInTheDocument();
-      expect(screen.getByRole("link", { name: /获取 API Key/ })).toHaveAttribute(
-        "href",
-        "https://copilot.tencent.com/profile/",
-      );
-      await userAction.click(screen.getByRole("button", { name: "下一步" }));
-      await screen.findByText("项目与仓库", { selector: "h3" });
-      expect(writeMock).toHaveBeenCalledWith(
-        "/api/users/1/credentials",
-        { codeBuddyInternetEnvironment: "internal" },
-        "PUT",
-      );
-    } finally {
-      mockState.users = null;
-    }
-  });
-
-  test("a refresh after switching to 国际站 elsewhere drops the omitted environment", async () => {
-    let environment = "internal";
-    mockState.users = () => [
-      { ...user, ...(environment ? { codeBuddyInternetEnvironment: environment } : {}) },
-    ];
-    writeMock.mockClear();
-    const userAction = userEvent.setup();
-    try {
-      render(
-        <QuickAccessWizard
-          open
-          user={user}
-          projects={[project]}
-          projectId="p1"
-          onClose={vi.fn()}
-          onCompleted={vi.fn()}
-          onOpenView={vi.fn()}
-        />,
-      );
-      await screen.findByRole("dialog");
-      const keyLink = screen.getByRole("link", { name: /获取 API Key/ });
-      await waitFor(() =>
-        expect(keyLink).toHaveAttribute("href", "https://copilot.tencent.com/profile/"),
-      );
-      // 个人配置 switched the environment to 国际站; the users API omits it now.
-      environment = "";
-      window.dispatchEvent(new Event("focus"));
-      await waitFor(() =>
-        expect(keyLink).toHaveAttribute("href", "https://www.codebuddy.ai/profile/keys"),
-      );
-      await userAction.type(screen.getByLabelText("CodeBuddy API Key"), "ck_new");
-      await userAction.click(screen.getByRole("button", { name: "下一步" }));
-      await screen.findByText("项目与仓库", { selector: "h3" });
-      expect(writeMock).toHaveBeenCalledWith(
-        "/api/users/1/credentials",
-        { codeBuddyApiKey: "ck_new", codeBuddyInternetEnvironment: "" },
-        "PUT",
-      );
-    } finally {
-      mockState.users = null;
-    }
-  });
-
-  test("a sponsored model lets new users skip credentials", async () => {
+  test("a platform shared OpenCode key lets new users skip credentials", async () => {
     mockState.unconfigured = true;
     const userAction = userEvent.setup();
     render(
@@ -385,7 +328,8 @@ describe("QuickAccessWizard", () => {
         user={{ id: 1, loginName: "tester", chineseName: "测试" }}
         projects={[project]}
         projectId="p1"
-        sponsoredModel="m1"
+        openCodeShared
+        openCodeSharedModels={["glm-5.1"]}
         onClose={vi.fn()}
         onCompleted={vi.fn()}
         onOpenView={vi.fn()}
@@ -460,7 +404,7 @@ describe("QuickAccessWizard repository permission (#122)", () => {
         user={member}
         projects={[welcome]}
         projectId="welcome"
-        sponsoredModel="m1"
+        openCodeShared
         onClose={vi.fn()}
         onCompleted={vi.fn()}
         onOpenView={vi.fn()}

@@ -1,6 +1,9 @@
 // CLIs that AI 对话 can run on. The list comes from GET /api/assistant/models
 // (`engines`); models without `engine` run on CodeBuddy.
+// Bare model IDs still belong to CodeBuddy for backwards compatibility; new
+// conversations choose primaryEngine and send prefixed IDs.
 export const defaultEngine = "codebuddy";
+export const primaryEngine = "opencode";
 
 // Bundled logo per CLI; an unknown CLI falls back to its model's brand.
 const brands = {

@@ -344,7 +344,7 @@ func (h *catalogHandlers) agents(c *gin.Context) {
 				return
 			}
 			if strings.TrimSpace(v.ExecutorID) == "" {
-				v.ExecutorID = "codebuddy"
+				v.ExecutorID = "opencode"
 			}
 			builtIn, ok := repo.BuiltInExecutor(v.ExecutorID)
 			if !ok {
@@ -1262,7 +1262,7 @@ func (h *catalogHandlers) workflow(c *gin.Context) {
 			return
 		}
 		if strings.TrimSpace(agent.ExecutorID) == "" {
-			agent.ExecutorID = "codebuddy"
+			agent.ExecutorID = "opencode"
 		}
 		builtIn, ok := repo.BuiltInExecutor(agent.ExecutorID)
 		if !ok {

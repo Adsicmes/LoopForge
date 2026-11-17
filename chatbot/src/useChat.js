@@ -16,7 +16,7 @@ import { cliFailureSettles } from "./cli-install.jsx";
 import { useExecutionMachines } from "./useExecutionMachines.js";
 import { executionLocked } from "./execution-target.js";
 import { modelEffort } from "./effort.js";
-import { conversationEngine, engineModels } from "./engines.js";
+import { conversationEngine, engineModels, engineOfModel, primaryEngine } from "./engines.js";
 import {
   enqueue,
   holdQueue,
@@ -29,10 +29,10 @@ import {
 } from "./message-queue.js";
 // Main Bot can run on any configured agent CLI; CodeBuddy stays the default.
 export const EXECUTORS = [
+  { id: "opencode", icon: "terminal", label: "OpenCode", detail: "使用 OpenCode 与个人或平台共享 API Key。" },
   { id: "codebuddy", icon: "sparkles", label: "CodeBuddy", detail: "使用 CodeBuddy 模型与个人 API Key。" },
   { id: "codex", icon: "terminal", label: "Codex", detail: "使用 Codex CLI 与个人 Codex API Key。" },
   { id: "claude-code", icon: "brain", label: "Claude Code", detail: "使用 Claude Code CLI 与个人 Claude Code API Key。" },
-  { id: "opencode", icon: "terminal", label: "OpenCode", detail: "使用 OpenCode 与个人 API Key。" },
   { id: "cursor", icon: "terminal", label: "Cursor", detail: "使用 Cursor CLI 与个人 API Key。" },
   { id: "agy", icon: "sparkles", label: "Antigravity", detail: "使用 Antigravity 与个人 API Key。" },
   { id: "kimi", icon: "sparkles", label: "Kimi Code", detail: "使用 Kimi Code 与个人 API Key。" },
@@ -43,20 +43,26 @@ export const EXECUTORS = [
 const EXECUTOR_KEY = "loopforge.assistant.executor";
 function knownExecutor(id) {
   if (id === "claude") return "claude-code";
-  return EXECUTORS.some((item) => item.id === id) ? id : "codebuddy";
+  return EXECUTORS.some((item) => item.id === id) ? id : primaryEngine;
+}
+function storedExecutorPreference() {
+  try {
+    const value = localStorage.getItem(EXECUTOR_KEY);
+    return value && EXECUTORS.some((item) => item.id === (value === "claude" ? "claude-code" : value))
+      ? (value === "claude" ? "claude-code" : value)
+      : "";
+  } catch {
+    return "";
+  }
 }
 function storedExecutor() {
-  try {
-    return knownExecutor(localStorage.getItem(EXECUTOR_KEY));
-  } catch {
-    return "codebuddy";
-  }
+  return storedExecutorPreference() || primaryEngine;
 }
 
 // Mirrors errAssistantSponsoredModel in internal/httpapi/assistant_sponsor.go;
 // credentialHint turns it into a "去配置" button.
 export function sponsoredModelMessage(models = []) {
-  return `未配置个人 CodeBuddy API Key 时只能使用平台管理员允许的模型（${models.join("、")}）。要使用其他模型，请先在个人配置中配置自己的 CodeBuddy API Key`;
+  return `未配置个人 API Key 时只能使用平台管理员允许的模型（${models.join("、")}）。要使用其他模型，请先在个人配置中配置自己的 API Key。`;
 }
 
 // The models a user without their own key may chat with, the default first.
@@ -99,6 +105,7 @@ export function useChat() {
     [model, setModel] = useState(""),
     [effort, setEffort] = useState(""),
     [sponsoredModels, setSponsoredModels] = useState([]),
+    [catalogEngines, setCatalogEngines] = useState([]),
     [executor, setExecutorState] = useState(storedExecutor),
     [providerCatalogs, setProviderCatalogs] = useState({}),
     [generation, setGeneration] = useState(null),
@@ -181,7 +188,7 @@ export function useChat() {
       // A new conversation starts on the platform default, not on whatever
       // model the previously opened conversation used.
       if (!id) {
-        const preferred = storedExecutor();
+        const preferred = storedExecutorPreference() || engineOfModel(defaultModel.current, models) || storedExecutor();
         setExecutorState(preferred);
         const next = engineModels(models, preferred);
         if (preferred === "codebuddy") setModel(defaultModel.current || next[0]?.id || "");
@@ -219,9 +226,14 @@ export function useChat() {
         setProjects(projectRows || []);
         setSandboxes(sandboxRows || []);
         setModels(catalog.models || []);
+        setCatalogEngines(catalog.engines || []);
         defaultModel.current = catalog.default || "";
         setSponsoredModels(sponsoredModelList(catalog));
-        setModel(catalog.default);
+        const preference = storedExecutorPreference();
+        const preferred = preference || engineOfModel(catalog.default, catalog.models) || primaryEngine;
+        setExecutorState(preferred);
+        const preferredModels = engineModels(catalog.models || [], preferred);
+        setModel(preferredModels[0]?.id || (preferred === "codebuddy" ? catalog.default || "" : "default"));
         await refreshSessions();
         if (!current) return;
         const recovered = connectionError;
@@ -511,16 +523,23 @@ export function useChat() {
     return () => window.removeEventListener("message", listener);
   }, [ready]);
   const codeBuddy = executor === "codebuddy";
+  const executors = EXECUTORS.map((item) => ({
+    ...item,
+    ...(catalogEngines.find((engine) => engine.id === item.id) || {}),
+  }));
+  const currentExecutor = executors.find((item) => item.id === executor) || {};
   const listedForEngine = engineModels(models, executor);
   const executorModels = listedForEngine.length || codeBuddy
     ? (codeBuddy ? models.filter((m) => !m.engine || m.engine === "codebuddy") : listedForEngine)
     : providerCatalogs[executor]?.models || [];
-  const missingKey = !!user && !user.codeBuddyApiKeyConfigured;
-  // Without their own key users chat on the platform's shared key, limited to
-  // the models the administrator allowed (the first is the default).
-  const sponsoredModel = sponsoredModels[0] || "";
-  const sponsored = codeBuddy && missingKey && !user.isGuest && !!sponsoredModel;
-  const sharedModelFor = (id) => (sponsoredModels.includes(id) ? id : sponsoredModel);
+  const engineShared = !!currentExecutor.shared;
+  const missingKey = !!user && !user.isGuest && currentExecutor.configured === false && !engineShared;
+  // A shared platform credential limits the turn to the models the
+  // administrator allowed; the first allowed model is the default.
+  const sponsoredModel = (engineShared ? listedForEngine[0]?.id : sponsoredModels[0]) || "";
+  const sponsored = !!user && !user.isGuest && engineShared && !!sponsoredModel;
+  const sharedModelFor = (id) =>
+    (listedForEngine.some((m) => m.id === id) ? id : sponsoredModel);
   const activeModel = sponsored ? sharedModelFor(model) : model;
   const activeEffort = modelEffort(executorModels.find((m) => m.id === activeModel), effort);
   useEffect(() => {
@@ -556,15 +575,15 @@ export function useChat() {
   );
   const chooseModel = useCallback(
     (id) => {
-      if (sponsored && !sponsoredModels.includes(id)) {
-        setError(sponsoredModelMessage(sponsoredModels));
+      if (sponsored && !listedForEngine.some((m) => m.id === id)) {
+        setError(sponsoredModelMessage(listedForEngine.map((m) => m.id)));
         return false;
       }
       setModel(id);
       setEffort((value) => modelEffort(executorModels.find((m) => m.id === id), value));
       return true;
     },
-    [sponsored, sponsoredModels, executorModels],
+    [sponsored, listedForEngine, executorModels],
   );
   // Credential flags are omitted when false, so drop the old ones before
   // merging; otherwise a cleared key would still look configured.
@@ -748,25 +767,14 @@ export function useChat() {
       setError(executionMachines.machineError || "执行机器仍在加载，请稍后发送。");
       return false;
     }
-    // Without a key (and no sponsored model) the server rejects every message.
-    // Say so before creating an empty conversation that would swallow the
-    // typed question. Re-check first in case the key was saved elsewhere since
-    // this page loaded.
-    if (
-      codeBuddy &&
-      !sponsoredModel &&
-      users.find((u) => u.id === user?.id)?.codeBuddyApiKeyConfigured ===
-        undefined &&
-      user &&
-      !user.isGuest
-    ) {
-      const rows = await api("/api/users").catch(() => null);
-      if (rows) setUsers(rows);
-      const fresh = rows?.find((u) => u.id === user.id);
-      if (fresh && !fresh.codeBuddyApiKeyConfigured) {
-        setError("请先在个人配置中配置自己的 CodeBuddy API Key");
-        return false;
-      }
+    // Without a personal or shared credential the server rejects every
+    // message. Say so before creating an empty conversation that would swallow
+    // the typed question.
+    if (user && !user.isGuest && currentExecutor.configured === false && !engineShared) {
+      setError(
+        `请先在个人配置中配置自己的 ${currentExecutor.label || executor} API Key，或让管理员配置平台共享 Key`,
+      );
+      return false;
     }
     submittingRef.current = true;
     setSubmitting(true);
@@ -1233,7 +1241,7 @@ export function useChat() {
     selectSandbox,
     models: executorModels,
     executor,
-    executors: EXECUTORS,
+    executors,
     setExecutor: chooseExecutor,
     sessions,
     session,

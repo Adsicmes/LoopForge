@@ -127,14 +127,14 @@ func TestNotificationBotAPIAuthBindingAndSecrets(t *testing.T) {
 	if after != storedSecret {
 		t.Fatal("blank secret erased credential")
 	}
-	if rsp = request("owner", "PUT", "/bots/"+bot.ID, `{"name":"Bot","botId":"wecom","enabled":true,"model":"public-model"}`); rsp.Code != 200 {
+	if rsp = request("owner", "PUT", "/bots/"+bot.ID, `{"name":"Bot","botId":"wecom","enabled":true,"model":"opencode:public-model"}`); rsp.Code != 200 {
 		t.Fatal(rsp.Body.String())
 	}
 	bot, _ = s.NotificationBot(bot.ID)
-	if bot.Model != "public-model" || bot.Target == nil {
+	if bot.Model != "opencode:public-model" || bot.Target == nil {
 		t.Fatal("model update lost target")
 	}
-	if rsp = request("owner", "PUT", "/bots/"+bot.ID, `{"name":"Bot","botId":"wecom","enabled":true,"model":"unknown-model"}`); rsp.Code != 400 {
+	if rsp = request("owner", "PUT", "/bots/"+bot.ID, `{"name":"Bot","botId":"wecom","enabled":true,"model":"codex:unknown-model"}`); rsp.Code != 400 {
 		t.Fatal("invalid model accepted")
 	}
 	rsp = request("owner", "POST", "/bots/"+bot.ID+"/test", "")

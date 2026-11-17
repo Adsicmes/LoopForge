@@ -106,7 +106,7 @@ func TestApplyAgentCLICredential(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if env[agentCLIKeyEnv] != "secret-key" || strings.Contains(env["OPENCODE_CONFIG_CONTENT"], "secret-key") || !strings.Contains(env["OPENCODE_CONFIG_CONTENT"], `"baseURL":"https://gw.example/v1"`) || !strings.Contains(env["OPENCODE_CONFIG_CONTENT"], "@ai-sdk/anthropic") {
+	if env[agentCLIKeyEnv] != "secret-key" || strings.Contains(env["OPENCODE_CONFIG_CONTENT"], "secret-key") || !strings.Contains(env["OPENCODE_CONFIG_CONTENT"], `"baseURL":"https://gw.example/v1"`) || !strings.Contains(env["OPENCODE_CONFIG_CONTENT"], "@opencode/ai/providers/anthropic-compatible") || env["OPENCODE_DISABLE_PROJECT_CONFIG"] != "1" || env["OPENCODE_DISABLE_CLAUDE_CODE"] != "1" {
 		t.Fatalf("opencode env: %v", env)
 	}
 
@@ -185,10 +185,18 @@ func TestWriteAgentCLIMCPConfigChat(t *testing.T) {
 		t.Fatal(err)
 	}
 	doc := read(home, ".config/opencode/opencode.json")
-	if permission := doc["permission"].(map[string]any); permission["bash"] != "deny" || permission["edit"] != "deny" {
-		t.Fatalf("opencode chat permission: %v", permission)
+	permissions, _ := doc["permissions"].([]any)
+	var denied []string
+	for _, raw := range permissions {
+		rule, _ := raw.(map[string]any)
+		if rule["effect"] == "deny" {
+			denied = append(denied, rule["action"].(string))
+		}
 	}
-	if server := doc["mcp"].(map[string]any)["gw"].(map[string]any); server["type"] != "remote" {
+	if !slices.Contains(denied, "edit") || !slices.Contains(denied, "shell") {
+		t.Fatalf("opencode chat permissions: %v", permissions)
+	}
+	if server := doc["mcp"].(map[string]any)["servers"].(map[string]any)["gw"].(map[string]any); server["type"] != "remote" || server["oauth"] != false {
 		t.Fatalf("opencode mcp: %v", server)
 	}
 	if err := WriteAgentCLIMCPConfig(AgentCLIAntigravity, HostAgentCLIHome(home), entries, AgentCLIMCPOptions{}); err != nil {

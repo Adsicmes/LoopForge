@@ -13,12 +13,43 @@ func (h *assistantHandlers) generateSOPReport(ctx context.Context, run domain.Ru
 }
 func (h *assistantHandlers) generateReport(ctx context.Context, run domain.Run, model, prompt, system string) (domain.AINotificationContent, error) {
 	user, ok := h.repo.User(run.ExecutionContext.ResponsibleUserID)
-	if !ok || strings.TrimSpace(user.CodeBuddyAPIKey) == "" {
+	credential, credentialOK := openCodeProviderCredential(h.repo, run.ExecutionContext.ResponsibleUserID)
+	if !ok || !credentialOK {
 		return domain.AINotificationContent{}, notification.ErrReportCredentials
 	}
-	catalog := loadAssistantModels(ctx, user.CodeBuddyInternetEnvironment)
-	if assistantAllowedModel(model, catalog) != model {
-		return domain.AINotificationContent{}, notification.ErrReportModel
+	engineModel := ""
+	if value := strings.TrimSpace(model); value != "" && value != "default" {
+		engine, selected := assistantModelEngine(value)
+		if engine == assistantEngineOpenCode {
+			engineModel = selected
+		}
+		// A legacy CodeBuddy (or other CLI) model is ignored: this pipeline now
+		// runs on OpenCode and resolves its default below.
+	}
+	if engineModel == "" {
+		engineModel = openCodeFirstModel(ctx, credential)
+		if engineModel == "" {
+			return domain.AINotificationContent{}, notification.ErrReportModel
+		}
+	}
+	if credential.Sponsored {
+		allowed := false
+		for _, item := range credential.Models {
+			if item.ID == engineModel {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			return domain.AINotificationContent{}, notification.ErrReportModel
+		}
+	}
+	model = assistantEngineOpenCode + ":" + engineModel
+	if user.AgentCLICredentials == nil {
+		user.AgentCLICredentials = map[string]domain.AgentCLICredential{}
+	}
+	user.AgentCLICredentials[assistantEngineOpenCode] = domain.AgentCLICredential{
+		APIKey: credential.APIKey, APIKeyConfigured: true, BaseURL: credential.BaseURL, Protocol: credential.Protocol, Models: credential.Models,
 	}
 
 	modelCtx, cancel := context.WithCancel(ctx)

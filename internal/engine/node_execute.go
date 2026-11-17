@@ -192,7 +192,7 @@ func resolveNodeExecutor(st *repo.Store, node domain.WorkflowNode, agent domain.
 		executorID = node.ExecutorID
 	}
 	if executorID == "" {
-		executorID = "codebuddy"
+		executorID = runtime.AgentCLIOpenCode
 	}
 	ex, found := repo.BuiltInExecutor(executorID)
 	if !found && executorID == "mock" {
@@ -219,6 +219,36 @@ func resolveNodeExecutor(st *repo.Store, node domain.WorkflowNode, agent domain.
 	}
 	if strings.TrimSpace(agent.Effort) != "" {
 		ex.Effort = agent.Effort
+	}
+	return ex, nil
+}
+
+// resolveOpenCodeExecutorModel resolves an empty/default OpenCode model from
+// the responsible user's credential (personal or platform shared). OpenCode
+// has no implicit "default" model, so an unresolved model must fail before the
+// CLI sees it.
+func resolveOpenCodeExecutorModel(credentials runtime.RunCredentials, ex domain.ExecutorDefinition) (domain.ExecutorDefinition, error) {
+	if ex.Kind != runtime.AgentCLIOpenCode {
+		return ex, nil
+	}
+	credential, hasCredential := credentials.AgentCLI[runtime.AgentCLIOpenCode]
+	model := strings.TrimSpace(ex.Model)
+	if model == "" || model == "default" {
+		if !hasCredential || len(credential.Models) == 0 {
+			return ex, fmt.Errorf("OpenCode 需要指定模型：请在角色或模板中选择一个具体模型")
+		}
+		ex.Model = credential.Models[0].ID
+		return ex, nil
+	}
+	// A platform-shared credential may only run the models its administrator
+	// allowed; a role configured with another model must not borrow it.
+	if hasCredential && credential.Sponsored {
+		for _, allowed := range credential.Models {
+			if allowed.ID == model {
+				return ex, nil
+			}
+		}
+		return ex, fmt.Errorf("平台共享 OpenCode Key 不允许模型 %s：请把角色模型改为管理员允许的模型，或让责任人配置自己的 OpenCode Key", model)
 	}
 	return ex, nil
 }
@@ -739,8 +769,10 @@ func (e *Engine) executeNode(ctx context.Context, runID string, wf domain.Workfl
 				options.GateResultPath = gateResultPath(nodeControlKey(current, node.ID), attempt)
 			}
 			ex := ex
-			if cb := sb.credentialSnapshot().CodeBuddy; ex.Kind == "codebuddy" && cb.Sponsored {
-				ex = e.sponsoredExecutor(runID, ex, cb.SponsoredModels, sink)
+			if resolved, resolveErr := resolveOpenCodeExecutorModel(sb.credentialSnapshot(), ex); resolveErr != nil {
+				return "", resolveErr
+			} else {
+				ex = resolved
 			}
 			if execMachine := e.defaultExecutionRunner(current); execMachine != "" {
 				// 执行机器 mode (bind-cli): the responsible user selected a default

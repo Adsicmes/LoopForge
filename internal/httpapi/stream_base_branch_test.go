@@ -175,7 +175,7 @@ printf '%s\n' '{"type":"result","result":"{\"summary\":\"已确认需求\",\"rea
 	}
 	issue := domain.Issue{ProjectID: "platform", RepositoryID: repository.ID, AssigneeUserID: 23,
 		Clarification: domain.ClarificationAssessment{SessionID: "old-session", SessionUserID: 23}}
-	request := chatClarifyRequest{SessionID: "old-session", Message: "继续确认范围"}
+	request := chatClarifyRequest{SessionID: "old-session", Message: "继续确认范围", Model: "deepseek-v4.1-flash"}
 	request.History = append(request.History, struct {
 		Role    string `json:"role"`
 		Content string `json:"content"`
@@ -233,7 +233,7 @@ printf '%s\n' '{"type":"result","result":"{\"summary\":\"已确认多仓库需�
 	}
 	h := &streamHandlers{deps: &deps{repo: st}}
 	issue := domain.Issue{ProjectID: "platform", AssigneeUserID: 24, RepositoryIDs: []string{"api", "web"}, RepositoryBranches: branches}
-	if _, _, _, err := h.executeClarify(context.Background(), issue, chatClarifyRequest{Message: "确认前后端需求"}, nil); err != nil {
+	if _, _, _, err := h.executeClarify(context.Background(), issue, chatClarifyRequest{Message: "确认前后端需求", Model: "deepseek-v4.1-flash"}, nil); err != nil {
 		t.Fatal(err)
 	}
 	content, err := os.ReadFile(filepath.Join(root, "analyzed-code"))

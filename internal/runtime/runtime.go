@@ -30,11 +30,6 @@ const (
 type CodeBuddyCredential struct {
 	APIKey              string
 	InternetEnvironment string
-	// Sponsored is set when the responsible user has no key of their own and
-	// the platform's shared key is used; such runs are limited to
-	// SponsoredModels (the default first).
-	Sponsored       bool
-	SponsoredModels []string
 }
 
 // RunCredentials lives only on the in-memory run sandbox handle. It is never
@@ -56,8 +51,11 @@ type ProviderCredential struct {
 	BaseURL  string
 	Protocol string
 	// Models is the user's saved model catalog for an agent CLI; Cursor
-	// resolves folded families from it (CursorModelID).
+	// resolves folded families from it (CursorModelID). A shared OpenCode
+	// credential fills this with the administrator's allow list.
 	Models []domain.CLIModel
+	// Sponsored marks a credential lent by the platform (OpenCode shared key).
+	Sponsored bool
 }
 
 type InvocationOptions struct {

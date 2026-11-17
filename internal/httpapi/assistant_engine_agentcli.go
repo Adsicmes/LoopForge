@@ -111,8 +111,40 @@ func assistantAgentCLILine(kind, line string, native *string) string {
 }
 
 // agent-cli-sessions.json maps "<kind>:<chat session>" onto the CLI's own
-// session ID, which each CLI assigns itself.
+// session ID and the CLI schema version that owns it.
 var agentCLISessionsMu sync.Mutex
+
+// agentCLISessionRecord is one native session. Version 0 is the historical
+// format (a bare string in the file); OpenCode requires version 2.
+type agentCLISessionRecord struct {
+	ID      string `json:"id"`
+	Version int    `json:"version,omitempty"`
+}
+
+// UnmarshalJSON accepts both the old bare string and the versioned object.
+func (r *agentCLISessionRecord) UnmarshalJSON(data []byte) error {
+	var id string
+	if json.Unmarshal(data, &id) == nil {
+		r.ID, r.Version = id, 0
+		return nil
+	}
+	type record agentCLISessionRecord
+	var value record
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	*r = agentCLISessionRecord(value)
+	return nil
+}
+
+// agentCLISessionVersion is the CLI schema version a resumable native session
+// must carry. OpenCode 2 cannot resume an OpenCode 1 session.
+func agentCLISessionVersion(kind string) int {
+	if kind == runtime.AgentCLIOpenCode {
+		return 2
+	}
+	return 0
+}
 
 // agentCLISessionValid guards the native ID before it reaches an argument.
 func agentCLISessionValid(id string) bool {
@@ -126,21 +158,25 @@ func agentCLISessionsPath(root string) string {
 func readAgentCLISession(root, kind, sessionID string) string {
 	agentCLISessionsMu.Lock()
 	defer agentCLISessionsMu.Unlock()
-	sessions := map[string]string{}
+	sessions := map[string]agentCLISessionRecord{}
 	if data, err := os.ReadFile(agentCLISessionsPath(root)); err == nil {
 		_ = json.Unmarshal(data, &sessions)
 	}
-	return sessions[kind+":"+sessionID]
+	record, ok := sessions[kind+":"+sessionID]
+	if !ok || record.Version < agentCLISessionVersion(kind) {
+		return ""
+	}
+	return record.ID
 }
 
 func writeAgentCLISession(root, kind, sessionID, native string) error {
 	agentCLISessionsMu.Lock()
 	defer agentCLISessionsMu.Unlock()
-	sessions := map[string]string{}
+	sessions := map[string]agentCLISessionRecord{}
 	if data, err := os.ReadFile(agentCLISessionsPath(root)); err == nil {
 		_ = json.Unmarshal(data, &sessions)
 	}
-	sessions[kind+":"+sessionID] = native
+	sessions[kind+":"+sessionID] = agentCLISessionRecord{ID: native, Version: agentCLISessionVersion(kind)}
 	data, err := json.Marshal(sessions)
 	if err != nil {
 		return err

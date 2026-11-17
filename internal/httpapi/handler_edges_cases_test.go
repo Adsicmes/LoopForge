@@ -723,7 +723,7 @@ func TestAssistantTaskGenerationAndWriterBranches(t *testing.T) {
 	st := cvAStore(t)
 	projectID := "cva-r3-task-p"
 	_ = st.PutProject(domain.Project{ID: projectID, Name: "P"})
-	_ = st.PutUser(domain.User{LoginName: "cva-r3-task", CodeBuddyAPIKey: "key"})
+	_ = st.PutUser(testOpenCode(domain.User{LoginName: "cva-r3-task", CodeBuddyAPIKey: "key"}))
 	user, _ := st.UserByLoginName("cva-r3-task")
 	h := &assistantHandlers{deps: &deps{repo: st}}
 

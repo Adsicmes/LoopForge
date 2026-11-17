@@ -105,7 +105,10 @@ const assistantSessionToolPrefix = "mcp__agentflow_session__"
 // assistantSessionToolName returns name without surrounding space and the
 // session MCP prefix, so session tools compare by their bare tool name.
 func assistantSessionToolName(name string) string {
-	return strings.TrimPrefix(strings.TrimSpace(name), assistantSessionToolPrefix)
+	name = strings.TrimSpace(name)
+	name = strings.TrimPrefix(name, assistantSessionToolPrefix)
+	name = strings.TrimPrefix(name, "agentflow_session_")
+	return name
 }
 
 func assistantProtocolTool(name string) bool {

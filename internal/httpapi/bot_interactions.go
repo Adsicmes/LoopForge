@@ -71,15 +71,48 @@ func (h *assistantHandlers) generateBotReply(ctx context.Context, bot domain.Not
 	if err != nil {
 		return "绑定的平台账号不可用或已失去项目权限，请在平台检查配置。", nil
 	}
-	if strings.TrimSpace(user.CodeBuddyAPIKey) == "" {
-		return "你的平台账号尚未配置 CodeBuddy Key，请在平台个人配置中配置。", nil
+	credential, credentialOK := openCodeProviderCredential(h.repo, user.ID)
+	if !credentialOK {
+		return "你的平台账号尚未配置 OpenCode Key，请在平台个人配置中配置，或让管理员配置共享 Key。", nil
 	}
-	model := bot.Model
-	if model == "" {
-		model = domain.DefaultNotificationReportModel
+	model := strings.TrimSpace(bot.Model)
+	engineModel := ""
+	if model == "" || model == "default" {
+		engineModel = openCodeFirstModel(ctx, credential)
+		if engineModel == "" {
+			return "所选模型不可用，请在 Bot 管理中重新选择。", nil
+		}
+	} else {
+		engine, selected := assistantModelEngine(model)
+		if engine == assistantEngineOpenCode {
+			engineModel = selected
+		} else {
+			// A Bot saved before the OpenCode switch carries a CodeBuddy model.
+			// Keep the Bot, but run it on OpenCode's resolved default.
+			engineModel = openCodeFirstModel(ctx, credential)
+			if engineModel == "" {
+				return "所选模型不可用，请在 Bot 管理中重新选择 OpenCode 模型。", nil
+			}
+		}
 	}
-	if assistantAllowedModel(model, loadAssistantModels(ctx, user.CodeBuddyInternetEnvironment)) != model {
-		return "所选模型不可用，请在 Bot 管理中重新选择。", nil
+	if credential.Sponsored {
+		allowed := false
+		for _, item := range credential.Models {
+			if item.ID == engineModel {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			return "所选模型不可用，请在 Bot 管理中重新选择。", nil
+		}
+	}
+	model = assistantEngineOpenCode + ":" + engineModel
+	if user.AgentCLICredentials == nil {
+		user.AgentCLICredentials = map[string]domain.AgentCLICredential{}
+	}
+	user.AgentCLICredentials[assistantEngineOpenCode] = domain.AgentCLICredential{
+		APIKey: credential.APIKey, APIKeyConfigured: true, BaseURL: credential.BaseURL, Protocol: credential.Protocol, Models: credential.Models,
 	}
 	if err = ensureAssistantSessionDirs(user.ID); err != nil {
 		return "", err

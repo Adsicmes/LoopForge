@@ -6,6 +6,9 @@
 // callers (localStorage keys, hidden inputs, form fields).
 (() => {
   const DEFAULT_MODEL = 'default';
+  // Bare model IDs still belong to CodeBuddy; this is the engine new pickers
+  // use when they need the platform's primary executor.
+  const PRIMARY_ENGINE = 'opencode';
   const FAMILY_MARK = {claude:'',gpt:'',glm:'智',gemini:'G',kimi:'K',deepseek:'D',minimax:'M',hunyuan:'混',mimo:'Mi',echo:'E',other:'AI'};
   const FAMILY_ICON = {
     claude:'/images/credentials/claude.svg',
@@ -126,14 +129,40 @@
   // Requirement clarification, Bot replies, run evals and the SOP preview
   // build run on CodeBuddy only, so their pickers list CodeBuddy models and
   // never offer a "codex:…" id the server would have to refuse.
+  function modelsForEngine(engine) {
+    return (catalog.models || []).filter(m => (m.engine || 'codebuddy') === engine);
+  }
+  function engineConfigured(engine) {
+    const option = (catalog.engines || []).find(item => item.id === engine);
+    return !!option && option.configured;
+  }
+  function engineShared(engine) {
+    const option = (catalog.engines || []).find(item => item.id === engine);
+    return !!option && option.shared;
+  }
+  function defaultModelFor(engine) {
+    return modelsForEngine(engine)[0]?.id || DEFAULT_MODEL;
+  }
+  function engineModelFor(id, engine) {
+    const value = String(id || '').trim();
+    if (!value) return defaultModelFor(engine);
+    if (modelsForEngine(engine).some(model => model.id === value)) return value;
+    if (engine === 'codebuddy') return DEFAULT_MODEL;
+    // A personal gateway may serve models the catalog has not listed yet.
+    // Keep them under their engine prefix; another CLI's ID falls back.
+    if (/^[a-z][a-z0-9-]*:/.test(value)) return engineOf(value) === engine ? value : defaultModelFor(engine);
+    return `${engine}:${value}`;
+  }
+  function renderEngineList(engine, menu, selectedId, onPick) {
+    renderOptions(menu, modelsForEngine(engine), selectedId, onPick);
+  }
+  // Compatibility wrappers for pickers that still name CodeBuddy explicitly.
   function codeBuddyModels() {
-    return (catalog.models || []).filter(m => (m.engine || 'codebuddy') === 'codebuddy');
+    return modelsForEngine('codebuddy');
   }
   function renderCodeBuddyList(menu, selectedId, onPick) {
-    renderOptions(menu, codeBuddyModels(), selectedId, onPick);
+    renderEngineList('codebuddy', menu, selectedId, onPick);
   }
-  // codeBuddyModel keeps a CodeBuddy id and turns an empty id, or a saved id
-  // of another CLI, into the CLI default the server resolves itself.
   function codeBuddyModel(id) {
     const value = String(id || '').trim();
     // The catalog may not have landed yet; the built-in CLI prefixes still count.
@@ -158,14 +187,21 @@
   }
   window.AgentFlowAssistantModels = {
     DEFAULT: DEFAULT_MODEL,
+    PRIMARY: PRIMARY_ENGINE,
     catalog: () => catalog,
     codeBuddyModel,
     codeBuddyModels,
+    defaultModelFor,
+    engineConfigured,
+    engineModelFor,
     engineOf,
+    engineShared,
     load,
+    modelsForEngine,
     paint,
     paintItem,
     renderCodeBuddyList,
+    renderEngineList,
     renderList,
     renderOptions
   };

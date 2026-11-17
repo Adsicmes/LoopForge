@@ -26,12 +26,26 @@ const (
 // bare package name resolves to no version at all.
 const DeepSeekHarnessVersion = "0.2.2-rc.1"
 
+// OpenCodeVersion is the OpenCode 2.x CLI the platform pins. The platform and
+// built-in sandbox images install it, and an on-demand install uses the same
+// exact version. OpenCode 1.x is deliberately not accepted: its CLI and config
+// schema are incompatible with the v2 adapter.
+const OpenCodeVersion = "2.3.0"
+
+// openCodeVersionMarker records the version of an on-demand install under its
+// `current` directory. A directory without a matching marker (including an old
+// opencode-ai v1 install) is treated as missing and replaced.
+const openCodeVersionMarker = ".loopforge-version"
+
 type onDemandCLI struct {
 	Engine       string
 	Binary       string
 	Package      string
 	Script       string
 	RelaxEngines bool
+	// Version, when set, is written to the install's version marker and must
+	// match before OnDemandCLIPath reuses the directory.
+	Version string
 	// Bundled CLIs ship in the published image, so its sandboxes never
 	// install them.
 	Bundled bool
@@ -44,7 +58,7 @@ func onDemandCLICatalog() map[string]onDemandCLI {
 		"codex":       {Engine: "codex", Binary: "codex", Package: "@openai/codex", Bundled: true},
 		"codebuddy":   {Engine: "codebuddy", Binary: "codebuddy", Package: "@tencent-ai/codebuddy-code", Bundled: true},
 		"claude-code": {Engine: "claude-code", Binary: "claude"},
-		"opencode":    {Engine: "opencode", Binary: "opencode", Package: "opencode-ai"},
+		"opencode":    {Engine: "opencode", Binary: "opencode", Package: "@opencode/cli@" + OpenCodeVersion, Version: OpenCodeVersion, Bundled: true},
 		"cursor":      {Engine: "cursor", Binary: "cursor-agent", Script: cursorInstallScript},
 		"agy":         {Engine: "agy", Binary: "agy", Script: agyInstallScript},
 		"kimi":        {Engine: "kimi", Binary: "kimi", Package: "@moonshot-ai/kimi-code"},
@@ -71,7 +85,22 @@ func OnDemandCLIPath(engine string) (string, bool) {
 	if path == "" || !fileIsExecutable(path) {
 		return "", false
 	}
+	if spec.Version != "" && !onDemandVersionMatches(path, spec.Version) {
+		return "", false
+	}
 	return path, true
+}
+
+// onDemandVersionMatches reads the marker beside an on-demand install's
+// node_modules directory. A missing marker means the directory predates the
+// marker (or was installed by another tool) and must not be reused.
+func onDemandVersionMatches(binaryPath, want string) bool {
+	installDir := filepath.Dir(filepath.Dir(filepath.Dir(binaryPath)))
+	data, err := os.ReadFile(filepath.Join(installDir, openCodeVersionMarker))
+	if err != nil {
+		return false
+	}
+	return strings.TrimSpace(string(data)) == strings.TrimSpace(want)
 }
 
 func onDemandBinary(spec onDemandCLI) string {
@@ -157,6 +186,11 @@ func installNPMCLI(ctx context.Context, spec onDemandCLI) (string, error) {
 	cmd.Dir = stage
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return "", errors.New(installCommandError(ctx, err, out))
+	}
+	if spec.Version != "" {
+		if err := os.WriteFile(filepath.Join(stage, openCodeVersionMarker), []byte(spec.Version+"\n"), 0o644); err != nil {
+			return "", fmt.Errorf("写入 CLI 版本标记失败：%w", err)
+		}
 	}
 	return activateNPMStage(parent, stage, spec.Binary)
 }

@@ -94,8 +94,9 @@ func (h *runsHandlers) startRunEval(c *gin.Context) {
 		return
 	}
 	user, ok := h.repo.User(current.ID)
-	if !ok || strings.TrimSpace(user.CodeBuddyAPIKey) == "" {
-		c.JSON(http.StatusBadRequest, map[string]string{"error": "请先在个人配置中配置自己的 CodeBuddy API Key"})
+	credential, credentialOK := openCodeProviderCredential(h.repo, current.ID)
+	if !ok || !credentialOK {
+		c.JSON(http.StatusBadRequest, map[string]string{"error": "请先在个人配置中配置自己的 OpenCode API Key，或让管理员配置平台共享 Key"})
 		return
 	}
 	if rec, busy := h.repo.ActiveRunEval(id); busy {
@@ -116,14 +117,46 @@ func (h *runsHandlers) startRunEval(c *gin.Context) {
 	if c.Request.ContentLength > 0 && !decode(c, &req) {
 		return
 	}
-	// Run evals run on CodeBuddy only: refuse a "codex:…" id instead of
-	// silently evaluating with the CodeBuddy default.
-	if engine, _ := assistantModelEngine(req.Model); engine != assistantEngineCodeBuddy {
-		c.JSON(http.StatusBadRequest, map[string]string{"error": "运行评测目前只支持 CodeBuddy 模型，请改选 CodeBuddy 模型"})
+	// Run evals run on OpenCode: refuse another CLI's model instead of
+	// silently evaluating with an unrelated default. An empty or legacy
+	// "default" request means OpenCode's default model.
+	engine, engineModel := assistantModelEngine(req.Model)
+	requested := strings.TrimSpace(req.Model)
+	if requested == "" || requested == "default" || requested == assistantEngineOpenCode+":default" {
+		engine, engineModel = assistantEngineOpenCode, ""
+	}
+	if engine != assistantEngineOpenCode {
+		c.JSON(http.StatusBadRequest, map[string]string{"error": "运行评测目前只支持 OpenCode 模型，请改选 OpenCode 模型"})
 		return
 	}
-	catalog := loadAssistantModels(c.Request.Context(), user.CodeBuddyInternetEnvironment)
-	model := assistantAllowedModel(req.Model, catalog)
+	if engineModel == "" || engineModel == "default" {
+		engineModel = openCodeFirstModel(c.Request.Context(), credential)
+		if engineModel == "" {
+			c.JSON(http.StatusBadRequest, map[string]string{"error": "OpenCode 需要指定模型"})
+			return
+		}
+	}
+	if credential.Sponsored {
+		allowed := false
+		for _, item := range credential.Models {
+			if item.ID == engineModel {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			c.JSON(http.StatusBadRequest, map[string]string{"error": "当前平台共享 OpenCode Key 不允许模型 " + engineModel})
+			return
+		}
+	}
+	model := assistantEngineOpenCode + ":" + engineModel
+	runUser := user
+	if runUser.AgentCLICredentials == nil {
+		runUser.AgentCLICredentials = map[string]domain.AgentCLICredential{}
+	}
+	runUser.AgentCLICredentials[assistantEngineOpenCode] = domain.AgentCLICredential{
+		APIKey: credential.APIKey, APIKeyConfigured: true, BaseURL: credential.BaseURL, Protocol: credential.Protocol, Models: credential.Models,
+	}
 	project, _ := h.repo.Project(run.ExecutionContext.ProjectID)
 	rec := domain.RunEvalRecord{
 		ID:        "eval-" + randomID(),
@@ -138,7 +171,7 @@ func (h *runsHandlers) startRunEval(c *gin.Context) {
 		respond(c, err)
 		return
 	}
-	h.launchRunEval(rec, run, user)
+	h.launchRunEval(rec, run, runUser)
 	c.JSON(http.StatusAccepted, rec)
 }
 

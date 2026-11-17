@@ -119,7 +119,7 @@ for arg in "$@"; do
   prev=$arg
 done
 mkdir -p "$prefix/node_modules/.bin"
-printf '#!/bin/sh\necho ok\n' > "$prefix/node_modules/.bin/$NPM_TEST_BIN"
+printf '#!/bin/sh\nif [ "$1" = "--version" ]; then echo "2.3.0"; exit 0; fi\necho ok\n' > "$prefix/node_modules/.bin/$NPM_TEST_BIN"
 chmod 755 "$prefix/node_modules/.bin/$NPM_TEST_BIN"
 `
 	if err := os.WriteFile(filepath.Join(npm, "npm"), []byte(script), 0o755); err != nil {
@@ -176,7 +176,7 @@ for arg in "$@"; do
   prev=$arg
 done
 mkdir -p "$prefix/node_modules/.bin"
-printf '#!/bin/sh\necho ok\n' > "$prefix/node_modules/.bin/$NPM_TEST_BIN"
+printf '#!/bin/sh\nif [ "$1" = "--version" ]; then echo "2.3.0"; exit 0; fi\necho ok\n' > "$prefix/node_modules/.bin/$NPM_TEST_BIN"
 chmod 755 "$prefix/node_modules/.bin/$NPM_TEST_BIN"
 `
 	if err := os.WriteFile(filepath.Join(npm, "npm"), []byte(script), 0o755); err != nil {
@@ -376,6 +376,6 @@ for arg in "$@"; do
   prev=$arg
 done
 mkdir -p "$prefix/node_modules/.bin"
-printf '#!/bin/sh\necho ok\n' > "$prefix/node_modules/.bin/$NPM_TEST_BIN"
+printf '#!/bin/sh\nif [ "$1" = "--version" ]; then echo "2.3.0"; exit 0; fi\necho ok\n' > "$prefix/node_modules/.bin/$NPM_TEST_BIN"
 chmod 755 "$prefix/node_modules/.bin/$NPM_TEST_BIN"
 `
