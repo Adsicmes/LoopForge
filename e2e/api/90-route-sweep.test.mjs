@@ -119,6 +119,15 @@ test('unknown tasks and workflows answer 404; token verification needs a valid u
   }
 });
 
+test('Codex subscription edges reject foreign users, require gateway tokens and accept admin toggles', async () => {
+  await status('GET', `/api/users/${MISSING}/codex-subscription`, undefined, [400, 403, 404]);
+  await status('DELETE', `/api/users/${MISSING}/codex-subscription`, undefined, [400, 403, 404]);
+  await status('PUT', `/api/users/${MISSING}/codex-subscription/auth-json`, {}, [400, 403, 404, 503]);
+  await status('POST', `/api/users/${MISSING}/codex-subscription/device/poll`, {}, [400, 403, 404]);
+  await status('POST', '/api/codex-gateway/responses', {}, [401], { auth: false });
+  await status('PUT', '/api/platform/codex-subscription', {}, [200, 400, 403, 503]);
+});
+
 test('runner and gate MCP downloads are served or explain how to enable them', async () => {
   for (const path of ['/deploy/agentflow-runner', '/deploy/agentflow-gate-mcp', '/runners/agentflow-gate-mcp']) {
     const res = await binary(path);
