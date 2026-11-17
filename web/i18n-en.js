@@ -242,3 +242,4 @@ Object.assign(window.LF_I18N_EN,{
   "到「个人配置 → Codex 订阅」重新连接 ChatGPT 订阅":"Reconnect the ChatGPT subscription under Personal settings → Codex subscription",
   "如果设备码被账号或工作区禁用，让管理员临时开启 auth.json 兜底":"If the account or workspace disabled device codes, ask an administrator to enable the auth.json fallback temporarily"
 });
+Object.assign(window.LF_I18N_EN, {"AI 对话与 SOP 使用 ChatGPT/Codex 订阅认证":"AI chat and SOPs use ChatGPT/Codex subscription sign-in"});
