@@ -193,7 +193,7 @@ func TestWriteAgentCLIMCPConfigChat(t *testing.T) {
 			denied = append(denied, rule["action"].(string))
 		}
 	}
-	if !slices.Contains(denied, "edit") || !slices.Contains(denied, "shell") {
+	if !slices.Contains(denied, "edit") || !slices.Contains(denied, "shell") || !slices.Contains(denied, "question") || !slices.Contains(denied, "subagent") {
 		t.Fatalf("opencode chat permissions: %v", permissions)
 	}
 	if server := doc["mcp"].(map[string]any)["servers"].(map[string]any)["gw"].(map[string]any); server["type"] != "remote" || server["oauth"] != false {

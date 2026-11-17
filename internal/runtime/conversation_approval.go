@@ -220,7 +220,12 @@ const conversationOpenCodeApproval = conversationApprovalJS + `
 export default {
   id: "loopforge-approval",
   async setup(ctx) {
+    // Code Mode reaches only the tools in its catalog: the runtime has no
+    // imports, filesystem access or timers, and every nested tool still
+    // enforces its own permission. Checking the wrapper itself would block
+    // the platform MCP reads that only arrive through it.
     await ctx.tool.hook("execute.before", async (event) => {
+      if (event.tool === "execute") return;
       await approve(event.tool, event.input);
     });
   },

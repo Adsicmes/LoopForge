@@ -122,6 +122,16 @@ func TestNativeApprovalAllowsPlatformReadsAndRejectsEffects(t *testing.T) {
 	}
 	if result := g.approveNativeTool(context.Background(), s, json.RawMessage(`{"name":"Bash","input":{"command":"echo unsafe"}}`)); result.Allow {
 		t.Fatal("platform native shell permitted")
+	} else if !strings.Contains(result.Reason, "打开工作区") || !strings.Contains(result.Reason, "Bash") {
+		t.Fatalf("platform shell denial is not actionable: %s", result.Reason)
+	}
+	if result := g.approveNativeTool(context.Background(), s, json.RawMessage(`{"name":"question","input":{"questions":[]}}`)); result.Allow ||
+		!strings.Contains(result.Reason, "回复") {
+		t.Fatalf("platform interactive question: %+v", result)
+	}
+	if result := g.approveNativeTool(context.Background(), s, json.RawMessage(`{"name":"subagent","input":{"agent":"explore"}}`)); result.Allow ||
+		!strings.Contains(result.Reason, "打开工作区") {
+		t.Fatalf("platform native subagent: %+v", result)
 	}
 }
 

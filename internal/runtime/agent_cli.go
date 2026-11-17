@@ -256,6 +256,11 @@ func openCodeEffortVariants() []any {
 // allows everything, so a read-only turn must deny the mutating and network
 // tools explicitly; SubmitOnly additionally hides native read/search so the
 // model has to submit through the MCP tool.
+//
+// A read-only turn is the headless platform chat: no client can answer the
+// native question form and no project worktree is bound for a subagent. Code
+// Mode only enforces permissions for the tools nested in it, so deny both here
+// rather than relying on the approval hook, which sees the wrapper.
 func openCodePermissionRules(options AgentCLIMCPOptions) []any {
 	if !options.ReadOnly && !options.SubmitOnly {
 		return nil
@@ -266,6 +271,8 @@ func openCodePermissionRules(options AgentCLIMCPOptions) []any {
 		map[string]any{"action": "webfetch", "resource": "*", "effect": "deny"},
 		map[string]any{"action": "websearch", "resource": "*", "effect": "deny"},
 		map[string]any{"action": "external_directory", "resource": "*", "effect": "deny"},
+		map[string]any{"action": "question", "resource": "*", "effect": "deny"},
+		map[string]any{"action": "subagent", "resource": "*", "effect": "deny"},
 	}
 	if options.SubmitOnly {
 		rules = append(rules,

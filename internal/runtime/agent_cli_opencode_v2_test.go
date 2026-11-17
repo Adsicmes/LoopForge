@@ -119,6 +119,7 @@ func TestOpenCodeV2ApprovalPluginUsesV2Hook(t *testing.T) {
 	for _, want := range []string{
 		"export default",
 		`ctx.tool.hook("execute.before"`,
+		`if (event.tool === "execute") return;`,
 		"await approve(event.tool, event.input)",
 	} {
 		if !strings.Contains(conversationOpenCodeApproval, want) {

@@ -89,7 +89,15 @@ func (h *agentToolGateway) approveNativeTool(ctx context.Context, s *AgentToolSe
 		return nativeToolApprovalResult{Allow: true}
 	}
 	if s.RuntimeMode != domain.AssistantModeWorkspace {
-		return deny("平台模式禁用原生命令和写入工具，请先打开工作区")
+		// Platform mode runs the CLI headless on the control plane, where no
+		// native command, write or interactive tool has anywhere to take effect.
+		switch strings.ToLower(action.Name) {
+		case "question", "askuserquestion":
+			return deny("平台模式不能弹出 CLI 交互提问，直接在回复里向用户问清楚")
+		case "subagent":
+			return deny("平台模式没有项目工作区，不能派生本地子代理，请先打开工作区")
+		}
+		return deny("平台模式禁用原生命令和写入工具（" + action.Name + "），请先打开工作区")
 	}
 	// The execution mode controls platform/external writes. Native development
 	// runs inside the bound Docker workspace in every approval mode; keep this
