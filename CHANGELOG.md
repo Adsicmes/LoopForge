@@ -2,14 +2,14 @@
 
 Platform releases use `vX.Y.Z` tags and publish this fork's image as `ghcr.io/adsicmes/loopforge`. LoopForge Local packages use `local-vX.Y.Z` tags and are published by manually running the `release-local` workflow.
 
-## Unreleased — OpenCode 2 as the first executor
+## 0.3.10-rc.1 — OpenCode 2 executor and Codex subscriptions (prerelease)
+
+This is a prerelease for testing the OpenCode 2 executor migration and per-member Codex ChatGPT subscriptions. The `latest` and `0.3` image tags stay on 0.3.8; install it with `git clone --branch v0.3.10-rc.1`.
 
 - **OpenCode `2.3.0` is the platform's first executor.** It is pinned in the platform image and the built-in `generic-backend` Dockerfile, resolved on demand at the same exact version, and only an OpenCode 2.x binary is accepted; a v1 install is reported as needing an upgrade instead of being driven with v2 argv. `migrations/034_platform_opencode_key.sql` adds the shared credential table and `migrations/035_builtin_opencode_defaults.sql` moves built-in templates, roles and the generic Dockerfile to OpenCode.
 - **All execution paths use OpenCode 2**: conversations and SOP roles, requirement clarification, run evaluation, reports, Bot replies, session titles, approval review, scheduled AI tasks and preview builds. Internal pipelines reuse the conversation's or role's model and otherwise resolve the shared OpenCode default. Bare model IDs keep CodeBuddy semantics; new entry points send `executor=opencode` and `opencode:<model>`.
 - **The platform shares an OpenCode credential instead of a CodeBuddy key.** **Platform administration → Shared OpenCode Key** stores the API Key, Base URL, protocol and allowed models; members without their own key use it within that list. Without a personal or shared OpenCode credential these paths fail with a configuration error and never fall back to CodeBuddy. Personal CodeBuddy keys and the CodeBuddy executor remain available. The old shared CodeBuddy table and `AGENTFLOW_ASSISTANT_SPONSOR_LOGIN` are no longer read; `platform_codebuddy_keys` can be dropped by an operator once its contents are no longer needed.
 - **OpenCode 2 sessions are not resumed from OpenCode 1.** Chat stores the CLI schema version beside each native session ID and clarification assessments record `sessionEngineVersion`; an older or missing marker starts a new v2 session from the platform transcript. The v2 adapter uses `run --standalone --format json --thinking`, `-m agentflow/<model>#<effort>`, `providers`/`mcp.servers`/`permissions` config, `@opencode/ai` provider packages, a default-export approval plugin and versioned session IDs.
-
-## Unreleased — Codex ChatGPT subscriptions
 
 - **个人订阅跑 Codex**：成员可在个人配置中用 ChatGPT 设备码连接自己的 Codex 订阅，平台内对话与 SOP 节点直接使用该订阅。订阅任务的 Token 照常记录，成本按 0 计并标记「订阅包含」；平台管理员在「平台管理 → Codex 订阅」统一开启，默认关闭。
 - **显式认证方式，不回退**：同时保存 API Key 和订阅时必须显式选择 `codexAuthMode`（`api_key` / `subscription` / `access_token`）。选中订阅后忽略 Base URL 和自定义模型目录，使用 Codex 自带模型；订阅失效时任务报错并提示重新连接，不会静默切回按量计费的 API Key。
