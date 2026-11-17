@@ -17,7 +17,7 @@ test('a user without model credentials can draft, configure credentials and retu
     await input.fill(draft);
     const notice=chat(page).locator('.credential-notice');
     await expect(notice).toBeVisible();
-    await expect(notice).toContainText('CodeBuddy API Key');
+    await expect(notice).toContainText('OpenCode');
     await notice.getByRole('button',{name:'去配置'}).click();
     await expect(page).toHaveURL(/#\/settings/);
     const wizard=page.locator('#credentialWizard');
@@ -27,6 +27,7 @@ test('a user without model credentials can draft, configure credentials and retu
     await expect(pane.locator('input[name="secret"]')).toBeFocused();
     await expect(next).toBeDisabled();
     await pane.locator('input[name="secret"]').fill(marker);
+    await pane.locator('input[name="extra"]').fill('https://gw.example/v1');
     await expect(next).toBeEnabled();
     await next.click();
     await expect(wizard.locator('[data-wizard-step]')).toHaveText('3 / 3');
@@ -35,7 +36,7 @@ test('a user without model credentials can draft, configure credentials and retu
     await expect(wizard.locator('[data-wizard-done]')).toBeVisible({timeout:20_000});
     const users=await page.request.get('/api/users').then(r=>r.json());
     const saved=users.find(u=>u.id===current.user.id);
-    expect(saved.codeBuddyApiKeyConfigured).toBe(true);
+    expect(saved.agentCliCredentials.opencode.apiKeyConfigured).toBe(true);
     expect(JSON.stringify(saved)).not.toContain(marker);
     await wizard.locator('[data-wizard-done]').click();
     input=await openHome(page);
@@ -43,7 +44,7 @@ test('a user without model credentials can draft, configure credentials and retu
     await expect(chat(page).locator('.credential-notice')).toHaveCount(0);
     expect(errors).toEqual([]);
   } finally {
-    const cleared=await page.request.put(path,{data:{codeBuddyApiKeyClear:true}});
+    const cleared=await page.request.put(path,{data:{agentCliCredentials:{opencode:{apiKeyClear:true,baseUrl:'',protocol:'',models:[]}}}});
     expect(cleared.ok()).toBe(true);
   }
 });

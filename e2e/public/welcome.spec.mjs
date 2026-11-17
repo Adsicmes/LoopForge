@@ -111,7 +111,7 @@ test('sending without a model key is refused before any request, with a way to c
   const text='No key yet: this must be refused before any model runs.';
   await input.fill(text);
   await frame.locator('.send-button').click();
-  const configure=frame.getByRole('button',{name:'去配置 CodeBuddy API Key'});
+  const configure=frame.getByRole('button',{name:'去配置'});
   await expect(configure).toBeVisible();
   await expect(input).toHaveValue(text);
   expect(writes).toBe(0);

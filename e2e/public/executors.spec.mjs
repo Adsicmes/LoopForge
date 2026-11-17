@@ -52,14 +52,14 @@ test('executor selection has independent models, credentials and a persistent ch
   };
   await executor.click();
   const options=frame.locator('.permission-menu [role="menuitemradio"]');
-  for(const label of ['CodeBuddy','Codex','Claude Code'])await expect(options.filter({hasText:label})).toHaveCount(1);
+  for(const label of ['OpenCode','CodeBuddy','Codex','Claude Code'])await expect(options.filter({hasText:label})).toHaveCount(1);
   await page.keyboard.press('Escape');
   await input.fill(draft);
-  for(const [id,label] of [['codex','Codex'],['claude','Claude Code'],['codebuddy','CodeBuddy']]){
+  for(const [id,label] of [['opencode','OpenCode'],['codex','Codex'],['claude','Claude Code'],['codebuddy','CodeBuddy']]){
     await choose(label);
     await expect(input).toHaveValue(draft);
-    // Only CodeBuddy has the inline key reminder; every executor is still checked server-side.
-    await expect(frame.locator('.credential-notice')).toHaveCount(id==='codebuddy'?1:0);
+    // Every unconfigured executor shows the inline key reminder; the server checks it again.
+    await expect(frame.locator('.credential-notice')).toHaveCount(1);
     const response=await page.request.post('/api/assistant/generations',{data:{executor:id,model:'default',projectId:'welcome',messages:[{role:'user',content:'No key: reject before executing.'}]}});
     expect(response.status()).toBe(400);expect((await response.json()).error).toContain(label);
     const models=await page.request.get('/api/assistant/models?executor='+id);

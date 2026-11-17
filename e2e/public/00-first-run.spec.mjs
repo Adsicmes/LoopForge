@@ -57,7 +57,7 @@ test('the home page guides a new account and explains the missing model key',asy
   const frame=chat(page);
   await expect(frame.locator('.home-starter')).toHaveCount(4);
   const notice=frame.locator('.credential-notice');
-  await expect(notice).toContainText('CodeBuddy API Key');
+  await expect(notice).toContainText('OpenCode');
   await input.fill('First question after installing');
   await notice.getByRole('button',{name:'去配置'}).click();
   await expect(page.locator('#credentialWizard .credential-pane:not(.is-leaving) input[name="secret"]')).toBeFocused();

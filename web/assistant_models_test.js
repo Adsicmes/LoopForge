@@ -56,7 +56,7 @@ const input = createElement('input'); input.setAttribute('data-clarify-model-val
 const menu = createElement('div'); menu.className = 'ai-model-menu'; menu.hidden = true;
 host.append(toggle, input, menu);
 
-const store = new Map([['agentflow.clarifyModel', 'model-a']]);
+const store = new Map([['agentflow.clarifyModel', 'opencode:model-a']]);
 const ctx = {
   console, setTimeout, clearTimeout, Promise,
   document: { addEventListener() {}, querySelectorAll: () => [], createElement },
@@ -68,13 +68,13 @@ const ctx = {
   fetch: async () => ({
     ok: true,
     json: async () => ({
-      default: 'model-b',
+      default: 'opencode:model-a',
       models: [
-        { id: 'model-a', name: 'Model A', family: 'claude', credits: 'x1.00' },
-        { id: 'model-b', name: 'Model B', family: 'glm', credits: 'x0.06' },
+        { id: 'opencode:model-a', name: 'Model A', family: 'claude', engine: 'opencode' },
+        { id: 'opencode:model-b', name: 'Model B', family: 'glm', engine: 'opencode' },
         { id: 'codex:gpt-5.5', name: 'GPT-5.5', family: 'gpt', engine: 'codex' },
       ],
-      engines: [{ id: 'codebuddy', name: 'CodeBuddy' }, { id: 'codex', name: 'Codex' }],
+      engines: [{ id: 'opencode', name: 'OpenCode' }, { id: 'codebuddy', name: 'CodeBuddy' }, { id: 'codex', name: 'Codex' }],
     }),
   }),
 };
@@ -99,11 +99,11 @@ vm.runInContext(moduleSource, ctx);
   assert.equal(icon.dataset.family, 'other');
 
   await api.load();
-  assert.equal(api.catalog().default, 'model-b');
+  assert.equal(api.catalog().default, 'opencode:model-a');
   assert.equal(api.catalog().models.length, 3, 'catalog adopts /api/assistant/models');
-  // Issue #228: clarification runs on CodeBuddy only, so CodeBuddy-only
-  // pickers hide other CLIs and a saved "codex:…" id falls back.
-  assert.deepEqual(api.codeBuddyModels().map(m => m.id), ['model-a', 'model-b']);
+  // Clarification runs on the platform's primary executor (OpenCode), so its
+  // picker hides other CLIs and a saved "codex:…" id falls back.
+  assert.deepEqual(api.modelsForEngine('opencode').map(m => m.id), ['opencode:model-a', 'opencode:model-b']);
   assert.equal(api.codeBuddyModel('codex:gpt-5.5'), 'default');
   assert.equal(api.codeBuddyModel(''), 'default');
   assert.equal(api.codeBuddyModel('model-a'), 'model-a');
@@ -121,18 +121,18 @@ vm.runInContext(moduleSource, ctx);
 
   toggle.onclick({ stopPropagation() {} });
   assert.equal(menu.hidden, false, 'clicking 选择模型 must open the menu');
-  assert.equal(menu.children.length, 2, 'menu lists only CodeBuddy models');
+  assert.equal(menu.children.length, 2, 'menu lists only the primary executor models');
   assert.ok(!menu.children.some(opt => opt.dataset.id.startsWith('codex:')), 'clarify menu hides Codex models');
   assert.ok(menu.children[0].className.includes('is-active'), 'stored model is marked active');
 
   menu.children[1].onclick();
-  assert.equal(store.get('agentflow.clarifyModel'), 'model-b');
-  assert.equal(input.value, 'model-b');
+  assert.equal(store.get('agentflow.clarifyModel'), 'opencode:model-b');
+  assert.equal(input.value, 'opencode:model-b');
   assert.equal(menu.hidden, true);
   assert.equal(label.textContent, 'Model B');
 
   // A Codex id saved before this fix must not reach chat-clarify.
   store.set('agentflow.clarifyModel', 'codex:gpt-5.5');
-  assert.equal(ctx.selectedClarifyModel(), 'default');
+  assert.equal(ctx.selectedClarifyModel(), 'opencode:model-a');
   console.log('assistant models ok');
 })().catch(err => { console.error(err); process.exit(1); });

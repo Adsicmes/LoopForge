@@ -3997,7 +3997,7 @@ func TestApplyUsagePropagatesCostStatus(t *testing.T) {
 	if run.Usage.CostStatus != "reported" || nr.Usage.CostStatus != "reported" {
 		t.Fatalf("cost status = run:%q node:%q, want reported", run.Usage.CostStatus, nr.Usage.CostStatus)
 	}
-	// 状态跟随最近一次快照。
+	// 状态按最不确定的一档合并：run 混入 estimated 成本后不会被后续 reported 升级。
 	applyUsage(&run, &nr, "s1", domain.TokenUsage{InputTokens: 20, OutputTokens: 4, CostUSD: 0.01, CostStatus: "estimated"})
 	if run.Usage.CostStatus != "estimated" {
 		t.Fatalf("cost status = %q, want estimated", run.Usage.CostStatus)
@@ -4010,9 +4010,9 @@ func TestApplyUsagePropagatesCostStatus(t *testing.T) {
 	if run.Usage.InputTokens != 30 || run.Usage.OutputTokens != 6 || run.Usage.CostUSD != 0.01 {
 		t.Fatalf("run usage = %+v", run.Usage)
 	}
-	// 只有状态、无数值变化的快照也应更新识别状态。
+	// 只有状态、无数值变化的快照也参与合并，但不能把 estimated 还原成 reported。
 	applyUsage(&run, &nr, "s1", domain.TokenUsage{CostStatus: "reported"})
-	if run.Usage.InputTokens != 30 || run.Usage.CostStatus != "reported" {
+	if run.Usage.InputTokens != 30 || run.Usage.CostStatus != "estimated" {
 		t.Fatalf("status-only update: usage=%+v status=%q", run.Usage, run.Usage.CostStatus)
 	}
 }
