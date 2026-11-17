@@ -2,6 +2,14 @@
 
 Platform releases use `vX.Y.Z` tags and publish this fork's image as `ghcr.io/adsicmes/loopforge`. LoopForge Local packages use `local-vX.Y.Z` tags and are published by manually running the `release-local` workflow.
 
+## 0.3.10-rc.3 — Platform-mode Code Mode repair (prerelease)
+
+This is a prerelease for testing the platform-mode repair. The `latest` and `0.3` image tags stay on 0.3.8; install it with `git clone --branch v0.3.10-rc.3`.
+
+- **平台模式下 Code Mode 恢复平台工具通路**：OpenCode 2 的 `execute` 是 Code Mode 入口，会话 MCP 工具只能经它到达，审批插件此前把包装层当成写入工具拒绝，网关列出的工具一个都调不到。现在包装层直接放行：Code Mode 运行时没有文件系统、import 和定时器，嵌套的每个工具仍各自校验权限。
+- **只读权限层补齐交互类工具**：平台对话是无头 CLI，没有人能回答原生提问表单，也没有项目工作区可派生本地子代理，`question` 和 `subagent` 因此在只读权限叠加里显式拒绝。
+- **原生工具拒绝原因按工具分档**：命令和写入回到带工具名的“请先打开工作区”，提问提示直接在回复里问用户，子代理提示没有项目工作区，不再一律报“禁用原生命令和写入工具”。
+
 ## 0.3.10-rc.2 — Codex subscription switch and OpenCode 2 defaults (prerelease)
 
 This is a prerelease for testing the Codex subscription switch and the OpenCode 2 default install. The `latest` and `0.3` image tags stay on 0.3.8; install it with `git clone --branch v0.3.10-rc.2`.
