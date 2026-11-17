@@ -131,6 +131,27 @@ func TestInstallOnDemandCLIRejectsUnknownEngineAndEmptyDirectory(t *testing.T) {
 	}
 }
 
+func TestInstallOpenCodeRunsPostInstallWhenNPMBlocksScripts(t *testing.T) {
+	root := t.TempDir()
+	npmLog := filepath.Join(t.TempDir(), "npm.log")
+	nodeLog := filepath.Join(t.TempDir(), "node.log")
+	t.Setenv("AGENTFLOW_RUNTIME_CLI_DIR", root)
+	t.Setenv("NPM_TEST_LOG", npmLog)
+	t.Setenv("NODE_TEST_LOG", nodeLog)
+	t.Setenv("NPM_TEST_BIN", "opencode")
+	useFakeCommands(t, map[string]string{
+		"npm":  genericFakeNPM + "\nmkdir -p \"$prefix/node_modules/@opencode/cli\"\nprintf '// postinstall\\n' > \"$prefix/node_modules/@opencode/cli/postinstall.mjs\"\n",
+		"node": "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$NODE_TEST_LOG\"\n",
+	})
+	if _, err := InstallOnDemandCLI(context.Background(), "opencode"); err != nil {
+		t.Fatal(err)
+	}
+	nodeCalls, _ := os.ReadFile(nodeLog)
+	if !strings.Contains(string(nodeCalls), "postinstall.mjs") {
+		t.Fatalf("postinstall was not run: %s", nodeCalls)
+	}
+}
+
 func TestInstallOnDemandClaudeCodeUsesPinnedRelease(t *testing.T) {
 	root := t.TempDir()
 	log := filepath.Join(t.TempDir(), "npm.log")

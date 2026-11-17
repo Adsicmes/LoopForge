@@ -192,7 +192,39 @@ func installNPMCLI(ctx context.Context, spec onDemandCLI) (string, error) {
 			return "", fmt.Errorf("写入 CLI 版本标记失败：%w", err)
 		}
 	}
+	if err := runNPMPostInstall(ctx, stage, spec); err != nil {
+		return "", err
+	}
 	return activateNPMStage(parent, stage, spec.Binary)
+}
+
+// runNPMPostInstall runs a package's postinstall script explicitly. npm 12
+// blocks lifecycle scripts unless the package is allowlisted, and the OpenCode
+// package then leaves a stub binary that exits with "postinstall script was not
+// run" instead of the real executable. The optional platform package is still
+// installed, so running the script by hand produces the same result as older
+// npm versions.
+func runNPMPostInstall(ctx context.Context, stage string, spec onDemandCLI) error {
+	if spec.Engine != "opencode" {
+		return nil
+	}
+	script := filepath.Join(stage, "node_modules", "@opencode", "cli", "postinstall.mjs")
+	if _, err := os.Stat(script); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	node, err := exec.LookPath("node")
+	if err != nil {
+		return errors.New("服务器上没有 Node.js，无法完成 OpenCode 安装")
+	}
+	cmd := exec.CommandContext(ctx, node, script)
+	cmd.Dir = filepath.Dir(script)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return errors.New(installCommandError(ctx, err, out))
+	}
+	return nil
 }
 
 // npmCLIInstallArgs builds the npm install argv for installing spec into stage.

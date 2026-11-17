@@ -2,6 +2,10 @@
 # Explicit local installation, schema initialization and catalog installation.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# OpenCode 2 is the default executor; a source checkout runs the platform
+# binary directly, so install it into ~/.local when the host has no v2 yet.
+export PATH="$HOME/.local/bin:$PATH"
+bash scripts/ensure-opencode.sh || echo "warning: OpenCode v2 is not available; the default executor will fail until it is installed" >&2
 bash scripts/configure.sh
 set -a
 source .env

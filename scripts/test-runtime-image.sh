@@ -5,7 +5,7 @@ docker run --rm -i --network none --read-only --tmpfs /tmp:rw,exec,nosuid,size=1
 export HOME=/tmp/home
 mkdir -p "$HOME"
 cd /tmp
-for command in node npm git bash curl python3 rg gcc g++ make pkg-config ssh unzip; do
+for command in node npm git bash curl python3 rg gcc g++ make pkg-config ssh unzip opencode; do
   command -v "$command" >/dev/null || { printf 'Missing sandbox tool: %s\n' "$command" >&2; exit 1; }
 done
 printf 'int main(void) { return 0; }\n' > check.c
@@ -25,5 +25,6 @@ codex --version
 if command -v claude >/dev/null; then printf 'Claude Code must not be bundled; it installs on first use.\n' >&2; exit 1; fi
 codebuddy --version
 dsh --version
+opencode --version | grep -Eq '(^|[^0-9])2\.' || { printf 'OpenCode must be v2.\n' >&2; exit 1; }
 printf 'Runtime image compatibility checks passed.\n'
 CHECK

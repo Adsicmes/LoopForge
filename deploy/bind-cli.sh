@@ -30,6 +30,8 @@
 
 set -euo pipefail
 
+OPENCODE_VERSION="2.3.0"
+
 SERVER=""
 TOKEN=""
 NAME=""
@@ -73,6 +75,58 @@ fi
 fail() { echo "[bind-cli] 错误: $*" >&2; exit 1; }
 info() { echo "[bind-cli] $*"; }
 warn() { echo "[bind-cli] 警告: $*" >&2; }
+
+# OpenCode 2 is the platform's default executor. Runner machines that do not
+# use the platform image need it on PATH; install the pinned release into
+# ~/.local when it is missing or still v1. Newer npm releases block lifecycle
+# scripts, so run the package postinstall explicitly instead of leaving the
+# stub binary that prints "postinstall script was not run".
+opencode_major() {
+  command -v opencode >/dev/null 2>&1 || return 0
+  opencode --version 2>/dev/null | sed -n 's/^[^0-9]*\([0-9][0-9]*\).*/\1/p' | head -1
+}
+
+ensure_opencode_v2() {
+  local current prefix postinstall
+  current="$(opencode_major)"
+  if [[ -n "$current" && "$current" -ge 2 ]]; then
+    info "  opencode 已是 v2：$(command -v opencode)（$(opencode --version 2>/dev/null | head -1)）"
+    return 0
+  fi
+  if ! command -v npm >/dev/null 2>&1; then
+    warn "  未找到 npm，无法自动安装 OpenCode ${OPENCODE_VERSION}；请安装 Node.js 后重试"
+    return 1
+  fi
+  prefix="$HOME/.local"
+  mkdir -p "$prefix/bin"
+  if [[ -n "$current" ]]; then
+    info "  检测到 OpenCode v${current}；安装 v2 到 ${prefix} 并优先使用"
+  else
+    info "  未找到 OpenCode；安装 v${OPENCODE_VERSION} 到 ${prefix}"
+  fi
+  if ! npm install --global --prefix "$prefix" --no-audit --no-fund "@opencode/cli@${OPENCODE_VERSION}"; then
+    warn "  OpenCode 安装失败；请手动执行：npm install -g --prefix \"$prefix\" @opencode/cli@${OPENCODE_VERSION}"
+    return 1
+  fi
+  postinstall="$prefix/lib/node_modules/@opencode/cli/postinstall.mjs"
+  if [[ -f "$postinstall" ]]; then
+    (cd "$(dirname "$postinstall")" && node "$postinstall") || {
+      warn "  OpenCode postinstall 执行失败"
+      return 1
+    }
+  fi
+  case ":$PATH:" in
+    *":$prefix/bin:"*) ;;
+    *) PATH="$prefix/bin:$PATH"; export PATH ;;
+  esac
+  hash -r 2>/dev/null || true
+  current="$(opencode_major)"
+  if [[ -z "$current" || "$current" -lt 2 ]]; then
+    warn "  OpenCode 安装后仍不是 v2；请检查 npm 输出和 ${prefix}/bin/opencode"
+    return 1
+  fi
+  info "  OpenCode v2 已安装：$(command -v opencode)（$(opencode --version 2>/dev/null | head -1)）"
+}
 
 # systemctl --user 走用户 D-Bus。SSH 进 CVM、以 root 执行，或当前 shell
 # 没有登录会话时，这条总线还不存在，会报 Failed to connect to bus。
@@ -489,6 +543,7 @@ resolve_server
 
 # ---------- 0. 预检本机 CLI ----------
 info "检测本机 Agent CLI..."
+ensure_opencode_v2 || true
 for cli in claude codex codebuddy opencode; do
   if command -v "$cli" >/dev/null 2>&1; then
     info "  发现 $cli: $(command -v "$cli")（$("$cli" --version 2>/dev/null | head -1 || echo 版本未知)）"

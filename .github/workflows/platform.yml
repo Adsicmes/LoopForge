@@ -51,7 +51,10 @@ jobs:
         run: npm ci --no-audit --no-fund && npm run coverage
         working-directory: webtest
       - name: Install pinned CLIs for local protocol acceptance
-        run: npm install --global @openai/codex@0.162.1 @anthropic-ai/claude-code@2.1.300
+        run: |
+          npm install --global @openai/codex@0.162.1 @anthropic-ai/claude-code@2.1.300 @opencode/cli@2.3.0
+          node "$(npm root -g)/@opencode/cli/postinstall.mjs"
+          opencode --version | grep -Eq '(^|[^0-9])2\.'
       - name: Check real CLI credentials, MCP, stream parsing and native-tool restrictions
         env:
           AGENTFLOW_TEST_NATIVE_PROVIDERS: '1'

@@ -585,7 +585,13 @@ function credentialEditorHTML(kind,user){
     </div>
   </div>`;
 }
-function codexAuthJsonAllowed(){return !!state.data?.codexSubscription?.authJsonAllowed}
+function codexAuthJsonAllowed(){return !!(state.codexSubscription?.authJsonAllowed ?? state.data?.codexSubscription?.authJsonAllowed)}
+async function refreshCodexSubscriptionStatus(){
+  const id=state.currentUser?.id;
+  if(!id)return null;
+  try{state.codexSubscription=await api(`/api/users/${id}/codex-subscription`,{silent:true})}catch{}
+  return state.codexSubscription||null;
+}
 function codexAuthJsonHTML(){
   if(!codexAuthJsonAllowed())return '';
   return `<details class="credential-authjson"><summary>设备码不可用？粘贴 auth.json</summary>
@@ -595,7 +601,7 @@ function codexAuthJsonHTML(){
     </details>`;
 }
 function codexSubscriptionSetupHTML(){
-  const enabled=!!state.data?.codexSubscription?.enabled;
+  const enabled=!!(state.codexSubscription?.enabled ?? state.data?.capabilities?.codexSubscription);
   return `<div class="credential-editor-form" data-codex-subscription data-user-id="${Number(state.currentUser?.id)||0}">
     <p class="credential-vline">用自己的 ChatGPT 账号连接 Codex 订阅。订阅任务照常记录 Token，成本按 0 计。</p>
     <p class="credential-vline">执行机器上的订阅经平台网关转发，refresh token 不会离开平台。</p>
@@ -627,6 +633,7 @@ async function loadCodexSubscriptionStatus(row){
   if(!id||!line)return;
   try{
     const status=await api(`/api/users/${id}/codex-subscription`,{silent:true});
+    state.codexSubscription=status;
     if(!row.isConnected)return;
     const parts=[status.email,status.plan,status.connectedAt?`连接于 ${String(status.connectedAt).slice(0,10)}`:'',status.needsReauth?'登录已失效，请重新连接':'',status.lastError&&!status.needsReauth?status.lastError:''].filter(Boolean);
     if(parts.length)line.textContent=parts.join(' · ');
@@ -640,6 +647,7 @@ function codexDeviceHTML(flow){
 async function codexSubscriptionConnect(row,button){
   const user=state.currentUser;
   if(!user||user.isGuest)return;
+  await refreshCodexSubscriptionStatus();
   const ui=credentialUI();
   if(ui.open&&ui.open!=='codexSubscription')setCredentialRowOpen(ui.open,false);
   ui.open='codexSubscription';
@@ -649,7 +657,7 @@ async function codexSubscriptionConnect(row,button){
     const inner=row.querySelector('.credential-editor-inner');
     if(inner){inner.innerHTML=codexSubscriptionSetupHTML();box=inner.querySelector('[data-codex-sub-device]');row.classList.add('is-open')}
   }
-  if(!state.data?.codexSubscription?.enabled){if(button)button.disabled=false;return}
+  if(!(state.codexSubscription?.enabled ?? state.data?.capabilities?.codexSubscription)){if(button)button.disabled=false;return}
   try{
     const flow=await api(`/api/users/${user.id}/codex-subscription/device`,{method:'POST',body:'{}'});
     if(box&&flow.userCode&&flow.verificationUrl)box.innerHTML=codexDeviceHTML(flow);
@@ -1350,6 +1358,7 @@ async function renderPersonalSettings(){
     toast('工蜂授权已保存，正在校验授权有效性…');
   }
   if(credentialWizard)closeCredentialWizard(true);
+  await refreshCodexSubscriptionStatus();
   host.innerHTML=`<section class="credential-account credential-enter" style="--i:0"><span class="credential-avatar">${userAvatarHTML(user, 150)}</span><div><b>${escapeHTML(userDisplay(user))}</b><small>凭证按用户隔离，仅在你负责的任务运行时注入。</small></div><span class="credential-account-note">${credentialGlyph('lock',14)}任务级注入，不写入 Agent 资产</span></section><section class="credential-panel credential-enter is-entering" id="credentialPanel" style="--i:1"></section>`;
   const panel=host.querySelector('#credentialPanel');
   bindCredentialPanel(panel);
@@ -1739,6 +1748,7 @@ async function loadPlatformCodexSubscription(host){
   const badge=card.querySelector('[data-codex-admin-badge]'),meta=card.querySelector('[data-codex-admin-meta]');
   try{
     const data=await api('/api/platform/codex-subscription',{silent:true});
+    state.codexSubscription={...(state.codexSubscription||{}),enabled:!!data.enabled,authJsonAllowed:!!data.authJsonAllowed};
     card.querySelector('[data-codex-admin-enabled]').checked=!!data.enabled;
     card.querySelector('[data-codex-admin-authjson]').checked=!!data.authJsonAllowed;
     if(badge)badge.textContent=data.enabled?lfT('已开启','On'):lfT('已关闭','Off');

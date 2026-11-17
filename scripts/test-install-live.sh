@@ -87,7 +87,7 @@ def require_ids(collection, expected):
     actual={item['id'] for item in catalog[collection]}
     assert expected <= actual, (collection, expected-actual, actual)
 require_ids('sandboxes', {'local','generic-docker'})
-require_ids('executors', {'codebuddy','codex','claude'})
+require_ids('executors', {'opencode','codebuddy','codex','claude'})
 require_ids('projects', {'welcome'})
 require_ids('workflows', {'welcome-workflow','generic-backend-delivery','generic-frontend-delivery','generic-product-delivery','issue-fix-production'})
 run=api('POST','/api/runs',{'projectId':'welcome','workflowId':'welcome-workflow','input':'Installer acceptance'})
