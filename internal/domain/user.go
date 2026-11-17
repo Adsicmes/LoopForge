@@ -7,12 +7,20 @@ import (
 
 // User 表示系统注册或登录的员工实体，用于后续资源归属与权限隔离。
 type User struct {
-	CodexAPIKey                string `json:"codexApiKey,omitempty"`
-	CodexAPIKeyConfigured      bool   `json:"codexApiKeyConfigured,omitempty"`
-	CodexBaseURL               string `json:"codexBaseUrl,omitempty"`
-	ClaudeCodeAPIKey           string `json:"claudeCodeApiKey,omitempty"`
-	ClaudeCodeAPIKeyConfigured bool   `json:"claudeCodeApiKeyConfigured,omitempty"`
-	ClaudeCodeBaseURL          string `json:"claudeCodeBaseUrl,omitempty"`
+	CodexAPIKey           string `json:"codexApiKey,omitempty"`
+	CodexAPIKeyConfigured bool   `json:"codexApiKeyConfigured,omitempty"`
+	CodexBaseURL          string `json:"codexBaseUrl,omitempty"`
+	// CodexAuthMode is the explicit choice when more than one Codex
+	// credential exists: api_key, subscription or access_token.
+	CodexAuthMode string `json:"codexAuthMode,omitempty"`
+	// CodexSubscriptionConfigured and CodexSubscriptionNeedsReauth are the
+	// non-secret status published to every signed-in user. The account email,
+	// plan and connection time are returned only by the owner's detail endpoint.
+	CodexSubscriptionConfigured  bool   `json:"codexSubscriptionConfigured,omitempty"`
+	CodexSubscriptionNeedsReauth bool   `json:"codexSubscriptionNeedsReauth,omitempty"`
+	ClaudeCodeAPIKey             string `json:"claudeCodeApiKey,omitempty"`
+	ClaudeCodeAPIKeyConfigured   bool   `json:"claudeCodeApiKeyConfigured,omitempty"`
+	ClaudeCodeBaseURL            string `json:"claudeCodeBaseUrl,omitempty"`
 	// CodexModels and ClaudeCodeModels are the model catalogs AI 对话 offers
 	// for that CLI, in display order. Empty follows the CLI's built-in models
 	// on the official endpoint, or the models the Base URL publishes.

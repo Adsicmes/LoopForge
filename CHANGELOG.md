@@ -9,6 +9,15 @@ Platform releases use `vX.Y.Z` tags and publish this fork's image as `ghcr.io/ad
 - **The platform shares an OpenCode credential instead of a CodeBuddy key.** **Platform administration → Shared OpenCode Key** stores the API Key, Base URL, protocol and allowed models; members without their own key use it within that list. Without a personal or shared OpenCode credential these paths fail with a configuration error and never fall back to CodeBuddy. Personal CodeBuddy keys and the CodeBuddy executor remain available. The old shared CodeBuddy table and `AGENTFLOW_ASSISTANT_SPONSOR_LOGIN` are no longer read; `platform_codebuddy_keys` can be dropped by an operator once its contents are no longer needed.
 - **OpenCode 2 sessions are not resumed from OpenCode 1.** Chat stores the CLI schema version beside each native session ID and clarification assessments record `sessionEngineVersion`; an older or missing marker starts a new v2 session from the platform transcript. The v2 adapter uses `run --standalone --format json --thinking`, `-m agentflow/<model>#<effort>`, `providers`/`mcp.servers`/`permissions` config, `@opencode/ai` provider packages, a default-export approval plugin and versioned session IDs.
 
+## Unreleased — Codex ChatGPT subscriptions
+
+- **个人订阅跑 Codex**：成员可在个人配置中用 ChatGPT 设备码连接自己的 Codex 订阅，平台内对话与 SOP 节点直接使用该订阅。订阅任务的 Token 照常记录，成本按 0 计并标记「订阅包含」；平台管理员在「平台管理 → Codex 订阅」统一开启，默认关闭。
+- **显式认证方式，不回退**：同时保存 API Key 和订阅时必须显式选择 `codexAuthMode`（`api_key` / `subscription` / `access_token`）。选中订阅后忽略 Base URL 和自定义模型目录，使用 Codex 自带模型；订阅失效时任务报错并提示重新连接，不会静默切回按量计费的 API Key。
+- **执行机器（V2）不持有 refresh token**：Runner 0.11.0+ 的订阅对话和 SOP 通过平台网关 `POST /api/codex-gateway/responses`、`GET /api/codex-gateway/models` 转发，runner 只拿到绑定用户/运行/会话的短期 HMAC 网关 token。控制面按用户串行刷新 OAuth token，refresh token 只保存在 AES-256-GCM 加密的 `user_codex_subscriptions` 中。
+- **凭据兜底**：设备码被账号或工作区策略禁用时，管理员可临时开启 `auth.json` 粘贴；内容只加密保存、不回显。部署需设置 `AGENTFLOW_CREDENTIAL_KEY`（32 字节 base64）和稳定的 `AGENTFLOW_CODEX_GATEWAY_SECRET`；缺失时功能 fail closed。
+- **成本口径**：新增 `included` 成本状态。全订阅 Run 显示 `included`，订阅与按量混合的 Run 显示 `estimated`，未知成本仍为 `unknown`；历史 API Key 运行不会被重算为 0。
+- 手动执行 `migrations/036_codex_subscription.sql` 创建 `user_codex_subscriptions`、`platform_settings` 和 `user_configs.codex_auth_mode`；启动时 AutoMigrate 也会补齐开发/测试库。升级执行机器后需重新连接一次订阅以验证设备码与网关路径。
+
 ## 0.3.9-yunxiao.1 — Yunxiao Codeup and Projex support (prerelease)
 
 This is a prerelease for testing the Alibaba Cloud Yunxiao integration. The `latest` and `0.3` image tags stay on 0.3.8; install it with `git clone --branch v0.3.9-yunxiao.1`.

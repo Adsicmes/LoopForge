@@ -1052,6 +1052,22 @@ func bindInvocationCredentials(inv *domain.RunnerInvocation, bindings []runtime.
 			if !personal {
 				continue
 			}
+			if inv.CodexAuthMode == domain.CodexAuthGateway {
+				if strings.TrimSpace(inv.CodexGatewayURL) == "" || strings.TrimSpace(inv.CodexGatewayToken) == "" {
+					return nil, nil, errors.New("Codex 订阅网关凭据不可用")
+				}
+				env["AGENTFLOW_CODEX_GATEWAY_TOKEN"] = inv.CodexGatewayToken
+				// A host login or key must not shadow the gateway provider.
+				env["CODEX_API_KEY"] = ""
+				env["OPENAI_API_KEY"] = ""
+				env["CODEX_ACCESS_TOKEN"] = ""
+				withProvider, err := runtime.CodexGatewayProviderArgv(argv, inv.CodexGatewayURL)
+				if err != nil {
+					return nil, nil, err
+				}
+				argv = withProvider
+				continue
+			}
 			key := strings.TrimSpace(inv.CodexAPIKey)
 			if key == "" {
 				return nil, nil, errors.New("Codex 个人 API Key 未配置")
@@ -1385,7 +1401,7 @@ func (d *Daemon) defaultWorkspace(taskID string) string {
 }
 
 // runnerVersion is reported at registration; it matches the module build.
-var runnerVersion = "0.10.1"
+var runnerVersion = "0.11.0"
 
 // Version returns the runner build version reported at registration.
 func Version() string { return runnerVersion }

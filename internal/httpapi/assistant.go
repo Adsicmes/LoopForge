@@ -185,7 +185,7 @@ func (h *assistantHandlers) chat(c *gin.Context) {
 	if catalogEngine == assistantEngineCodeBuddy {
 		catalog = h.chatCatalog(c.Request.Context(), user)
 	}
-	req.Model = assistantAllowedUserModel(req.Model, catalog, user)
+	req.Model = assistantAllowedUserModel(req.Model, catalog, user, h.codexSubscriptionSelected(user))
 	cliEngine, _ = assistantModelEngine(req.Model)
 	req.Executor = cliEngine
 	if err := validateAssistantEffort(user, req.Model, req.Effort); err != nil {
@@ -497,7 +497,13 @@ func (h *assistantHandlers) chat(c *gin.Context) {
 					prompt = assistantPlatformExecutionReminder + "\n" + prompt
 				}
 				prompt += conversationAttachmentNote(cliRoot, req)
-				cliReq := assistantCLIRequest{Executor: req.Executor, Prompt: prompt, Model: req.Model, Effort: req.Effort, SessionID: cliSessionID, Resume: resume, UserID: u.ID, Native: true, MCPConfig: mcp, Settings: settings, SystemPrompt: system, SessionRoot: cliRoot, OnUsage: turnUsage.add, Workspace: req.workspaceMode, RemoteBinary: req.workspaceMode || toolSession.ExecutionRunnerID != "", Execute: h.conversationExecutor(toolSession, cliRoot)}
+				cliReq := assistantCLIRequest{Executor: req.Executor, Prompt: prompt, Model: req.Model, Effort: req.Effort, SessionID: cliSessionID, Resume: resume, UserID: u.ID, Native: true, MCPConfig: mcp, Settings: settings, SystemPrompt: system, SessionRoot: cliRoot, OnUsage: turnUsage.add, Workspace: req.workspaceMode, RemoteBinary: req.workspaceMode || toolSession.ExecutionRunnerID != "", Execute: h.conversationExecutor(toolSession, cliRoot), CodexAuth: h.codexCredential(u, toolSession.ExecutionRunnerID != "", toolSession.ChatSessionID)}
+				if auth := cliReq.CodexAuth; auth != nil && auth.AuthMode == domain.CodexAuthSubscription && auth.AuthGeneration > 0 {
+					cliReq.CodexCapture = func(path string) { h.captureCodexAuth(u.ID, auth.AuthGeneration, path) }
+				}
+				if auth := cliReq.CodexAuth; auth != nil && domain.IsIncludedAuthMode(auth.AuthMode) {
+					turnUsage.included = true
+				}
 				persistAttempt := func(unstarted bool) error {
 					if nativeSession != nil {
 						nativeSession.checkpoint.Unstarted = unstarted
@@ -753,7 +759,7 @@ func (h *assistantHandlers) chat(c *gin.Context) {
 				fail(500, "保存对话失败，请重试")
 				return
 			}
-			attributeConversationUsage(h.deps, toolSession, replyModel, stored[len(stored)-1].Usage)
+			attributeConversationUsage(h.deps, toolSession, replyModel, stored[len(stored)-1].Usage, turnUsage.isIncluded())
 			if nativeSession != nil && nativeContinuationReady {
 				if err := nativeSession.commit(stored); err != nil {
 					log.Printf("assistant native checkpoint session=%s: %v", req.SessionID, err)
@@ -1391,6 +1397,12 @@ type assistantCLIRequest struct {
 	// OnUsage receives the usage of this CLI invocation once its result event
 	// reports one; the result event covers only this process, not the session.
 	OnUsage func(domain.TokenUsage)
+	// CodexAuth is the resolved Codex credential for this turn. It carries the
+	// subscription secret only in memory; nil keeps the legacy API-key path.
+	CodexAuth *runtime.ProviderCredential
+	// CodexCapture receives the private auth.json path after a subscription
+	// turn; nil means the caller cannot persist refreshed tokens.
+	CodexCapture func(string)
 }
 
 func runAssistantCLI(ctx context.Context, req assistantCLIRequest, user domain.User, onEvent func(assistantStreamEvent)) (output string, returnedSessionID string, returnedErr error) {
@@ -1457,13 +1469,17 @@ func runAssistantCLI(ctx context.Context, req assistantCLIRequest, user domain.U
 		sessionID = newAssistantSessionID()
 	}
 	var inv assistantCLIInvocation
-	engineOpts := assistantEngineInvocationOpts{Bin: bin, Root: root, Config: config, Prompt: req.Prompt, Model: engineModel, Effort: req.Effort, SessionID: sessionID, Resume: req.Resume, SystemPrompt: req.SystemPrompt, ReviewOnly: req.ReviewOnly, Workspace: req.Workspace}
+	engineOpts := assistantEngineInvocationOpts{Bin: bin, Root: root, Config: config, Prompt: req.Prompt, Model: engineModel, Effort: req.Effort, SessionID: sessionID, Resume: req.Resume, SystemPrompt: req.SystemPrompt, ReviewOnly: req.ReviewOnly, Workspace: req.Workspace, CodexCapture: req.CodexCapture}
 	switch engine {
 	case assistantEngineClaude:
 		engineOpts.User = runtime.ProviderCredential{APIKey: user.ClaudeCodeAPIKey, BaseURL: user.ClaudeCodeBaseURL}
 		inv, err = prepareAssistantClaudeInvocation(engineOpts)
 	case assistantEngineCodex:
-		engineOpts.User = runtime.ProviderCredential{APIKey: user.CodexAPIKey, BaseURL: user.CodexBaseURL}
+		if req.CodexAuth != nil {
+			engineOpts.User = *req.CodexAuth
+		} else {
+			engineOpts.User = runtime.ProviderCredential{APIKey: user.CodexAPIKey, BaseURL: user.CodexBaseURL}
+		}
 		inv, err = prepareAssistantCodexInvocation(engineOpts)
 	default:
 		if runtime.IsAgentCLI(engine) {
@@ -1613,13 +1629,17 @@ func assistantUsageReported(u domain.TokenUsage) bool {
 // assistantTurnUsage sums the usage of every CLI invocation behind one reply
 // (protocol retries and session restarts included).
 type assistantTurnUsage struct {
-	mu    sync.Mutex
-	total domain.TokenUsage
+	mu       sync.Mutex
+	total    domain.TokenUsage
+	included bool
 }
 
 func (t *assistantTurnUsage) add(u domain.TokenUsage) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	if t.included {
+		u = domain.IncludedUsage(u)
+	}
 	t.total.InputTokens += u.InputTokens
 	t.total.OutputTokens += u.OutputTokens
 	t.total.CacheReadTokens += u.CacheReadTokens
@@ -1640,6 +1660,12 @@ func (t *assistantTurnUsage) snapshot() *domain.TokenUsage {
 	}
 	out := t.total
 	return &out
+}
+
+func (t *assistantTurnUsage) isIncluded() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.included
 }
 
 // errAssistantCredentialRejected means CodeBuddy answered the turn with an

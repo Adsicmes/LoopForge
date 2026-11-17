@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"agentflow/internal/codexauth"
 	"agentflow/internal/domain"
 	"agentflow/internal/runtime"
 )
@@ -202,11 +203,36 @@ func (e *Engine) dispatchRunnerTask(ctx context.Context, runnerID string, run do
 	if authMode == domain.RuntimeAuthPersonal {
 		switch ex.Kind {
 		case "codex":
-			if strings.TrimSpace(sb.credentialSnapshot().Codex.APIKey) == "" {
-				return "", errors.New("当前责任人未配置 Codex API Key：请先在个人配置中配置，或将执行机器认证方式切回本机登录")
+			codexCred := sb.credentialSnapshot().Codex
+			if strings.TrimSpace(codexCred.AuthError) != "" {
+				return "", errors.New(strings.TrimSpace(codexCred.AuthError))
 			}
-			invocation.CodexAPIKey = sb.credentialSnapshot().Codex.APIKey
-			invocation.CodexBaseURL = sb.credentialSnapshot().Codex.BaseURL
+			switch codexCred.AuthMode {
+			case domain.CodexAuthSubscription:
+				if !runner.SupportsCodexGateway() {
+					return "", fmt.Errorf("执行机器版本过低，需升级至 %s 及以上才能使用 Codex 订阅", domain.RunnerVersionCodexGateway)
+				}
+				baseURL := codexauth.GatewayURL()
+				if baseURL == "" {
+					return "", errors.New("Codex 网关地址未配置：请设置 AGENTFLOW_CODEX_GATEWAY_URL 或 AGENTFLOW_PUBLIC_URL")
+				}
+				gatewayToken, expires, err := codexauth.Issue(run.ExecutionContext.ResponsibleUserID, run.ID, node.ID, 24*time.Hour)
+				if err != nil {
+					return "", err
+				}
+				invocation.CodexAuthMode = domain.CodexAuthGateway
+				invocation.CodexGatewayURL = baseURL
+				invocation.CodexGatewayToken = gatewayToken
+				invocation.CodexGatewayExpiresAt = expires
+			case domain.CodexAuthAccessToken:
+				return "", errors.New("Codex access token 模式尚未启用")
+			default:
+				if strings.TrimSpace(codexCred.APIKey) == "" {
+					return "", errors.New("当前责任人未配置 Codex API Key：请先在个人配置中配置，或将执行机器认证方式切回本机登录")
+				}
+				invocation.CodexAPIKey = codexCred.APIKey
+				invocation.CodexBaseURL = codexCred.BaseURL
+			}
 		case "claude-code":
 			if strings.TrimSpace(sb.credentialSnapshot().ClaudeCode.APIKey) == "" {
 				return "", errors.New("当前责任人未配置 Claude Code API Key：请先在个人配置中配置，或将执行机器认证方式切回本机登录")

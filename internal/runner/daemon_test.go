@@ -39,6 +39,23 @@ func TestBindInvocationCredentials(t *testing.T) {
 			t.Fatalf("argv=%v env=%v", argv, env)
 		}
 	})
+	t.Run("personal codex gateway injects run token", func(t *testing.T) {
+		inv := &domain.RunnerInvocation{CredentialSource: domain.RuntimeAuthPersonal, CodexAuthMode: domain.CodexAuthGateway, CodexGatewayURL: "https://loopforge.example/api/codex-gateway", CodexGatewayToken: "run-token"}
+		argv, env, err := bindInvocationCredentials(inv, []runtime.CredentialBinding{runtime.BindCodex}, []string{"codex", "exec", "prompt"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		joined := strings.Join(argv, " ")
+		if env["AGENTFLOW_CODEX_GATEWAY_TOKEN"] != "run-token" || env["CODEX_API_KEY"] != "" || !strings.Contains(joined, "agentflow_gateway") || argv[len(argv)-1] != "prompt" {
+			t.Fatalf("argv=%v env=%v", argv, env)
+		}
+	})
+	t.Run("personal codex gateway needs a token", func(t *testing.T) {
+		inv := &domain.RunnerInvocation{CredentialSource: domain.RuntimeAuthPersonal, CodexAuthMode: domain.CodexAuthGateway, CodexGatewayURL: "https://loopforge.example/api/codex-gateway"}
+		if _, _, err := bindInvocationCredentials(inv, []runtime.CredentialBinding{runtime.BindCodex}, []string{"codex", "exec", "prompt"}); err == nil {
+			t.Fatal("gateway invocation without a token was accepted")
+		}
+	})
 	t.Run("personal claude injects key and base URL", func(t *testing.T) {
 		inv := &domain.RunnerInvocation{CredentialSource: domain.RuntimeAuthPersonal, ClaudeCodeAPIKey: "claude-secret", ClaudeCodeBaseURL: "https://claude.example"}
 		_, env, err := bindInvocationCredentials(inv, []runtime.CredentialBinding{runtime.BindClaudeCode}, []string{"claude", "-p", "prompt"})

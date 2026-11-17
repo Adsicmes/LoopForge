@@ -148,6 +148,7 @@ type NodeRun struct {
 	Error           string      `json:"error,omitempty"`
 	Provider        string      `json:"provider,omitempty"`
 	Model           string      `json:"model,omitempty"`
+	AuthMode        string      `json:"authMode,omitempty"`
 	SessionID       string      `json:"sessionId,omitempty"`
 	ResumeSessionID string      `json:"resumeSessionId,omitempty"`
 	Activity        string      `json:"activity,omitempty"`
@@ -188,7 +189,7 @@ type TokenUsage struct {
 	ReasoningTokens  int64   `json:"reasoningTokens,omitempty"`
 	ContextWindow    int64   `json:"contextWindow,omitempty"`
 	// CostStatus 区分"成本为 0"与"成本未知"：reported（适配器上报）、estimated（按 token 估算）、
-	// unknown（未识别，展示为"未识别"而不是 ¥0）。空值视为 unknown，旧数据向后兼容。
+	// included（订阅计划已包含，成本记 0）、unknown（未识别，展示为"未识别"而不是 ¥0）。空值视为 unknown，旧数据向后兼容。
 	CostStatus string `json:"costStatus,omitempty"`
 }
 

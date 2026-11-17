@@ -9,7 +9,8 @@ func TestPublicRunnerTaskScrubsMultiRepositoryTokens(t *testing.T) {
 	task := RunnerTask{
 		ID: "task-1",
 		Invocation: &RunnerInvocation{
-			CodeBuddyAPIKey: "cb-secret",
+			CodeBuddyAPIKey:   "cb-secret",
+			CodexGatewayToken: "gateway-secret",
 			Repository: &RunnerRepository{
 				CloneURL: "git@example.com:a.git",
 				GitToken: "single-token",
@@ -24,6 +25,9 @@ func TestPublicRunnerTaskScrubsMultiRepositoryTokens(t *testing.T) {
 	inv := public.Invocation
 	if inv.CodeBuddyAPIKey != "" {
 		t.Fatal("CodeBuddyAPIKey must be scrubbed")
+	}
+	if inv.CodexGatewayToken != "" {
+		t.Fatal("CodexGatewayToken must be scrubbed")
 	}
 	if inv.Repository == nil || inv.Repository.GitToken != "" {
 		t.Fatal("legacy repository GitToken must be scrubbed")

@@ -86,6 +86,12 @@ const CREDENTIAL_KINDS=[
     extra:{name:'codexBaseUrl',label:'Base URL',placeholder:'https://api.openai.com/v1',url:true,clearWithKey:true},
     models:{name:'codexModels',engine:'codex',endpoint:'/models'},
     impact:'以 Codex 运行的 SOP 节点将无法执行，Base URL 与模型目录一并清空。'},
+  {key:'codexSubscription',group:'model',name:'Codex 订阅',short:'ChatGPT 订阅',logo:'codex',monochrome:true,optional:true,
+    use:'AI 对话与 SOP 使用 ChatGPT/Codex 订阅认证',
+    description:'通过官方设备码连接你的 ChatGPT 账号。订阅任务的 Token 照常记录，成本按 0 计；执行机器上的订阅经平台网关，refresh token 不会下发。',
+    guide:[['点击「连接订阅」，页面会显示一次性设备码'],['在 ChatGPT 页面确认设备码并完成登录'],['回到这里；连接后可选择「改用 API Key」切回按量计费']],
+    placeholder:'',
+    impact:'Codex 订阅任务将无法执行；API Key 配置和已有任务不受影响。'},
   {key:'claudeCodeApiKey',group:'model',name:'Claude Code',short:'Claude Code API Key',logo:'claude',monochrome:true,
     use:'AI 对话选择 Claude 执行器，以及以 Claude Code 运行的 SOP 节点',
     description:'AI 对话切换到 Claude Code 后可选用模型目录里的模型，SOP 在执行机器上以 Claude Code 运行的节点也使用它。目录为空时，未填 Base URL 使用 Claude Code 自带模型，填写后跟随服务发布的模型；也可以自己挑选、排序和命名。',
@@ -471,6 +477,7 @@ function gitTokenFailure(result){
 }
 function credentialStatus(kind,user){
   if(!credentialConfigured(kind,user))return 'empty';
+  if(kind.key==='codexSubscription'&&user.codexSubscriptionNeedsReauth)return 'err';
   if(kind.key!=='gitToken')return 'ok';
   const verify=gitTokenVerifyFor({id:state.currentUser?.id});
   if(verify?.busy)return 'busy';
@@ -496,6 +503,12 @@ function credentialSubline(kind,user){
   if(kind.key==='codeBuddyApiKey'){
     const raw=String(user.codeBuddyInternetEnvironment||'').trim(),env=codeBuddyEnvironment(raw);
     return `<span>网络环境</span>${env?`<span class="credential-mono">${escapeHTML(env.label)}</span>`:`<span class="is-err">「${escapeHTML(raw)}」无法识别，按国际站连接</span>`}${dot}${use}`;
+  }
+  if(kind.key==='codexApiKey'&&user.codexAuthMode==='subscription')return `<span>已保存</span><span class="is-info">当前使用订阅，未启用此 Key</span>`;
+  if(kind.key==='codexSubscription'){
+    if(user.codexSubscriptionNeedsReauth)return '<span class="is-err">登录已失效，请重新连接</span>';
+    const usingSub=user.codexAuthMode==='subscription'||(!user.codexAuthMode&&!user.codexApiKeyConfigured);
+    return `<span>ChatGPT 订阅</span>${dot}<span>${usingSub?'当前使用订阅':'当前按 API Key 计费'}</span>`;
   }
   if(kind.extra){
     const models=kind.models&&credentialCatalogModels(credentialValue(user,kind.models.name)).length,baseUrl=credentialValue(user,kind.extra.name);
@@ -551,6 +564,7 @@ function gitTokenEditorHTML(kind,user){
   </div>`;
 }
 function credentialEditorHTML(kind,user){
+  if(kind.key==='codexSubscription')return codexSubscriptionEditorHTML(kind,user);
   if(kind.key==='gitToken')return gitTokenEditorHTML(kind,user);
   const extraStored=kind.extra?credentialValue(user,kind.extra.name):'';
   const extraValue=kind.extra?credentialExtraValue(kind,extraStored):'';
@@ -571,11 +585,150 @@ function credentialEditorHTML(kind,user){
     </div>
   </div>`;
 }
+function codexAuthJsonAllowed(){return !!state.data?.codexSubscription?.authJsonAllowed}
+function codexAuthJsonHTML(){
+  if(!codexAuthJsonAllowed())return '';
+  return `<details class="credential-authjson"><summary>设备码不可用？粘贴 auth.json</summary>
+      <p class="credential-vline">在已登录 Codex 的机器上读取 <code>~/.codex/auth.json</code> 并粘贴到这里；平台只保存加密后的内容，不会回显。</p>
+      <label class="credential-field"><span>auth.json</span><div class="credential-input"><textarea class="credential-mono" data-codex-sub-authjson rows="4" spellcheck="false" autocomplete="off" placeholder='{"auth_mode":"chatgpt","tokens":{...}}'></textarea></div></label>
+      <div class="credential-editor-foot"><button type="button" class="credential-btn secondary credential-ink" data-codex-sub-act="paste-auth-json">校验并保存</button></div>
+    </details>`;
+}
+function codexSubscriptionSetupHTML(){
+  const enabled=!!state.data?.codexSubscription?.enabled;
+  return `<div class="credential-editor-form" data-codex-subscription data-user-id="${Number(state.currentUser?.id)||0}">
+    <p class="credential-vline">用自己的 ChatGPT 账号连接 Codex 订阅。订阅任务照常记录 Token，成本按 0 计。</p>
+    <p class="credential-vline">执行机器上的订阅经平台网关转发，refresh token 不会离开平台。</p>
+    ${enabled?`<div class="credential-editor-foot"><button type="button" class="credential-btn secondary credential-ink" data-codex-sub-act="connect">连接订阅</button></div>`:'<p class="credential-vline is-err">平台管理员尚未开启 Codex 订阅，请联系管理员。</p>'}
+    <div data-codex-sub-device></div>
+    ${codexAuthJsonHTML()}
+  </div>`;
+}
+function codexSubscriptionEditorHTML(kind,user){
+  const needs=!!user.codexSubscriptionNeedsReauth,usingSubscription=user.codexAuthMode==='subscription'||(!user.codexAuthMode&&!user.codexApiKeyConfigured);
+  const modeSwitch=user.codexApiKeyConfigured?`<div class="credential-editor-foot">
+      <button type="button" class="credential-btn ghost credential-ink" data-codex-sub-act="use-api-key"${usingSubscription?'':' hidden'}>改用 API Key</button>
+      <button type="button" class="credential-btn ghost credential-ink" data-codex-sub-act="use-subscription"${usingSubscription?' hidden':''}>改用订阅</button>
+    </div>`:'';
+  return `<div class="credential-editor-form" data-codex-subscription data-user-id="${Number(user.id)||0}">
+    <p class="credential-vline" data-codex-sub-meta>${needs?'订阅登录已失效，请重新连接。':'已连接 ChatGPT 订阅。订阅任务照常记录 Token，成本按 0 计。'}</p>
+    <p class="credential-vline">执行机器上的订阅经平台网关转发，refresh token 不会离开平台。</p>
+    <div class="credential-editor-foot" data-codex-sub-pane>
+      <button type="button" class="credential-btn secondary credential-ink" data-codex-sub-act="connect">重新连接</button>
+      <button type="button" class="credential-btn ghost danger credential-ink" data-codex-sub-act="disconnect">断开订阅</button>
+    </div>
+    <div data-codex-sub-device></div>
+    ${codexAuthJsonHTML()}
+    ${modeSwitch}
+  </div>`;
+}
+async function loadCodexSubscriptionStatus(row){
+  const id=state.currentUser?.id,line=row?.querySelector('[data-codex-sub-meta]');
+  if(!id||!line)return;
+  try{
+    const status=await api(`/api/users/${id}/codex-subscription`,{silent:true});
+    if(!row.isConnected)return;
+    const parts=[status.email,status.plan,status.connectedAt?`连接于 ${String(status.connectedAt).slice(0,10)}`:'',status.needsReauth?'登录已失效，请重新连接':'',status.lastError&&!status.needsReauth?status.lastError:''].filter(Boolean);
+    if(parts.length)line.textContent=parts.join(' · ');
+  }catch{}
+}
+let codexSubscriptionPoll=null;
+function codexDeviceHTML(flow){
+  const url=escapeHTML(flow.verificationUrl||''),code=escapeHTML(flow.userCode||'');
+  return `<p class="credential-vline">在 <a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a> 输入一次性代码 <b>${code}</b>。</p><p class="credential-vline">完成后这里会自动刷新；代码 15 分钟内有效。</p>`;
+}
+async function codexSubscriptionConnect(row,button){
+  const user=state.currentUser;
+  if(!user||user.isGuest)return;
+  const ui=credentialUI();
+  if(ui.open&&ui.open!=='codexSubscription')setCredentialRowOpen(ui.open,false);
+  ui.open='codexSubscription';
+  if(button)button.disabled=true;
+  let box=row?.querySelector('[data-codex-sub-device]');
+  if(!box&&row){
+    const inner=row.querySelector('.credential-editor-inner');
+    if(inner){inner.innerHTML=codexSubscriptionSetupHTML();box=inner.querySelector('[data-codex-sub-device]');row.classList.add('is-open')}
+  }
+  if(!state.data?.codexSubscription?.enabled){if(button)button.disabled=false;return}
+  try{
+    const flow=await api(`/api/users/${user.id}/codex-subscription/device`,{method:'POST',body:'{}'});
+    if(box&&flow.userCode&&flow.verificationUrl)box.innerHTML=codexDeviceHTML(flow);
+    if(flow.status==='connected'){await refreshCodexSubscriptionUser();toast('Codex 订阅已连接');return}
+    let attempts=0;
+    if(codexSubscriptionPoll)clearInterval(codexSubscriptionPoll);
+    codexSubscriptionPoll=setInterval(async()=>{
+      attempts++;
+      try{
+        const result=await api(`/api/users/${user.id}/codex-subscription/device/poll`,{method:'POST',body:JSON.stringify({flowId:flow.flowId})});
+        if(result.userCode&&result.verificationUrl&&box)box.innerHTML=codexDeviceHTML(result);
+        if(result.status==='connected'){
+          clearInterval(codexSubscriptionPoll);codexSubscriptionPoll=null;
+          await refreshCodexSubscriptionUser();toast('Codex 订阅已连接');
+        }else if(result.status==='error'){
+          clearInterval(codexSubscriptionPoll);codexSubscriptionPoll=null;
+          if(box)box.innerHTML=`<p class="credential-vline">${escapeHTML(result.error||'连接失败')}</p>`;
+          if(button)button.disabled=false;
+        }else if(attempts>450){
+          clearInterval(codexSubscriptionPoll);codexSubscriptionPoll=null;
+          if(box)box.innerHTML='<p class="credential-vline">登录超时，请重新连接。</p>';
+          if(button)button.disabled=false;
+        }
+      }catch(err){
+        if(attempts>450){clearInterval(codexSubscriptionPoll);codexSubscriptionPoll=null;if(box)box.innerHTML=`<p class="credential-vline">${escapeHTML(err.message)}</p>`;}
+      }
+    },2000);
+  }catch(err){
+    if(button)button.disabled=false;
+    if(box)box.innerHTML=`<p class="credential-vline">${escapeHTML(err.message)}</p>`;
+    else toast(err.message);
+  }
+}
+async function refreshCodexSubscriptionUser(){
+  const id=state.currentUser?.id;if(!id)return;
+  try{
+    const shell=await api('/api/bootstrap',{silent:true});
+    Object.assign(state.data,shell);
+    const me=(shell.users||[]).find(u=>u.id===id);
+    if(me)state.currentUser=me;
+    renderPersonalSettings();
+  }catch{}
+}
+async function codexSubscriptionAction(action,row,button){
+  const user=state.currentUser;
+  if(!user||user.isGuest)return;
+  if(action==='connect')return codexSubscriptionConnect(row,button);
+  if(action==='disconnect'){
+    if(button.dataset.confirm!=='1'){
+      button.dataset.confirm='1';button.textContent='确认断开';
+      setTimeout(()=>{if(button.isConnected){button.dataset.confirm='';button.textContent='断开订阅'}},3000);
+      return;
+    }
+    try{await api(`/api/users/${user.id}/codex-subscription`,{method:'DELETE'});if(codexSubscriptionPoll){clearInterval(codexSubscriptionPoll);codexSubscriptionPoll=null}toast('已断开 Codex 订阅');await refreshCodexSubscriptionUser()}catch(err){toast(err.message)}
+    return;
+  }
+  if(action==='use-api-key'||action==='use-subscription'){
+    const mode=action==='use-api-key'?'api_key':'subscription';
+    try{await api(`/api/users/${user.id}/credentials`,{method:'PUT',body:JSON.stringify({codexAuthMode:mode})});toast(mode==='api_key'?'已改用 API Key':'已改用订阅');await refreshCodexSubscriptionUser()}catch(err){toast(err.message)}
+    return;
+  }
+  if(action==='paste-auth-json'){
+    const area=row?.querySelector('[data-codex-sub-authjson]'),raw=String(area?.value||'').trim();
+    if(!raw)return toast('请先粘贴 auth.json 内容');
+    if(button)button.disabled=true;
+    try{
+      await api(`/api/users/${user.id}/codex-subscription/auth-json`,{method:'PUT',body:JSON.stringify({authJson:raw})});
+      if(area)area.value='';
+      toast('Codex 订阅已连接');
+      await refreshCodexSubscriptionUser();
+    }catch(err){toast(err.message)}
+    finally{if(button)button.disabled=false}
+  }
+}
 function credentialRowMainHTML(kind,user){
   const ssh=kind.key==='gitSshKey',on=credentialConfigured(kind,user),open=on&&credentialUI().open===kind.key,status=credentialStatus(kind,user);
   const end=on&&!ssh
     ?`${credentialBadgeHTML(status)}${kind.key==='gitToken'?`<span class="credential-tip" data-tip="重新校验"><button type="button" class="credential-btn ghost icon credential-ink git-token-verify" data-credential-act="verify" aria-label="重新校验"${status==='busy'?' disabled':''}>${credentialGlyph('refresh',15)}</button></span>`:''}<span class="credential-chevron">${credentialGlyph('chevron-down',16)}</span>`
-    :`${credentialBadgeHTML(status)}<button type="button" class="credential-btn secondary credential-ink" data-credential-act="setup"${ssh?' aria-haspopup="dialog"':''}>${ssh?'管理密钥':'去配置'}<span class="credential-nudge">${credentialGlyph('chevron-right',13)}</span></button>`;
+    :`${credentialBadgeHTML(status)}<button type="button" class="credential-btn secondary credential-ink" data-credential-act="setup"${ssh?' aria-haspopup="dialog"':''}>${ssh?'管理密钥':kind.key==='codexSubscription'?'连接订阅':'去配置'}<span class="credential-nudge">${credentialGlyph('chevron-right',13)}</span></button>`;
   const interaction=ssh?'':` role="button" tabindex="0"${on?` aria-expanded="${open}"`:''}`;
   return `<div class="credential-row-main credential-ink"${interaction}>${credentialLogo(kind,on?'':'is-dim')}<div class="credential-row-who"><b>${escapeHTML(kind.name)}<span>${escapeHTML(kind.short)}</span></b><small>${credentialSubline(kind,user)}</small></div><div class="credential-row-end">${end}</div></div>`;
 }
@@ -589,8 +742,8 @@ function credentialGroupHTML(group,user){
   return `<section class="credential-group" data-credential-group="${group.id}"><button type="button" class="credential-group-head credential-ink" aria-expanded="${!closed}">${credentialGlyph(group.icon,16)}<strong>${escapeHTML(group.name)}</strong><span class="credential-group-sub">${escapeHTML(group.sub)}</span><span class="credential-group-meta">${done} / ${kinds.length}</span><span class="credential-group-chevron">${credentialGlyph('chevron-down',15)}</span></button><div class="credential-fold${closed?' is-closed':''}"><div><div class="credential-rows">${kinds.map(kind=>credentialRowHTML(kind,user)).join('')}<p class="credential-empty" hidden></p></div></div></div></section>`;
 }
 function credentialProgressHTML(user){
-  const done=CREDENTIAL_KINDS.filter(kind=>credentialConfigured(kind,user)).length,next=credentialNextKind(user);
-  return `<div class="credential-segs" aria-hidden="true">${CREDENTIAL_KINDS.map((_,index)=>`<i${index<done?' class="is-on"':''}></i>`).join('')}</div><span class="credential-count"><b>${done}</b> / ${CREDENTIAL_KINDS.length} 已配置</span>`
+  const tracked=CREDENTIAL_KINDS.filter(kind=>!kind.optional),done=tracked.filter(kind=>credentialConfigured(kind,user)).length,next=credentialNextKind(user);
+  return `<div class="credential-segs" aria-hidden="true">${tracked.map((_,index)=>`<i${index<done?' class="is-on"':''}></i>`).join('')}</div><span class="credential-count"><b>${done}</b> / ${tracked.length} 已配置</span>`
     +(next?`<span class="credential-next">下一步<button type="button" class="credential-btn link credential-ink" data-credential-setup="${next.key}">配置 ${escapeHTML(next.short)}<span class="credential-nudge">${credentialGlyph('arrow-right',13)}</span></button></span>`:`<span class="credential-ready">${credentialGlyph('check',15)}推荐凭证已全部就绪</span>`);
 }
 function credentialFilterHTML(user){
@@ -647,13 +800,16 @@ function setCredentialRowOpen(key,open){
   const row=$(`#credentialPanel [data-credential-row="${key}"]`);if(!row)return;
   row.classList.toggle('is-open',open);
   row.querySelector('.credential-row-main')?.setAttribute('aria-expanded',String(open));
+  if(open&&key==='codexSubscription')loadCodexSubscriptionStatus(row);
   if(!open){
+    if(key==='codexSubscription'&&codexSubscriptionPoll){clearInterval(codexSubscriptionPoll);codexSubscriptionPoll=null}
     resetCredentialEditor(row);
     showCredentialPane(row,'bar');
   }
 }
 function resetCredentialEditor(row){
   row.querySelectorAll('[name="secret"]').forEach(input=>{input.value='';if(input.tagName==='INPUT')input.type='password'});
+  row.querySelectorAll('[data-codex-sub-authjson]').forEach(area=>{area.value=''});
   const form=row.querySelector('.credential-editor-form');if(!form)return;
   const extra=form.querySelector('[name="extra"]');if(extra)extra.value=form.dataset.original||'';
   if(extra?.tagName==='SELECT')refreshCredentialEnvironmentLinks(form,extra.value);
@@ -795,7 +951,10 @@ function toggleCredentialSecret(button){
 }
 function credentialRowAction(action,row,button){
   const key=row.dataset.credentialRow;
-  if(action==='setup')return openCredentialWizard(key);
+  if(action==='setup'){
+    if(key==='codexSubscription')return codexSubscriptionConnect(row,button);
+    return openCredentialWizard(key);
+  }
   if(action==='verify')return refreshGitTokenStatus({announce:true});
   const gongfeng=key==='gitToken';
   if(action==='replace')return showCredentialPane(row,'form');
@@ -823,6 +982,7 @@ function toggleCredentialGroup(head){
 function activateCredentialRow(row){
   const key=row.dataset.credentialRow;
   if(key==='gitSshKey')return openGitSSHKeys();
+  if(key==='codexSubscription')return row.classList.contains('is-configured')?toggleCredentialRow(key):codexSubscriptionConnect(row);
   return row.classList.contains('is-configured')?toggleCredentialRow(key):openCredentialWizard(key);
 }
 function bindCredentialPanel(panel){
@@ -836,6 +996,8 @@ function bindCredentialPanel(panel){
     const row=target.closest('[data-credential-row]');if(!row)return;
     const catalogAction=target.closest('[data-catalog-act]');
     if(catalogAction){event.stopPropagation();if(!catalogAction.disabled)credentialCatalogAction(catalogAction.dataset.catalogAct,row,catalogAction.closest('[data-credential-catalog]'),catalogAction);return}
+    const codexAction=target.closest('[data-codex-sub-act]');
+    if(codexAction){event.stopPropagation();if(!codexAction.disabled)codexSubscriptionAction(codexAction.dataset.codexSubAct,row,codexAction);return}
     const action=target.closest('[data-credential-act]');
     if(action){event.stopPropagation();if(!action.disabled)credentialRowAction(action.dataset.credentialAct,row,action);return}
     if(target.closest('.credential-editor'))return;
@@ -890,6 +1052,7 @@ function openCredentialWizard(key){
   const user=credentialUser();
   if(!state.currentUser||state.currentUser.isGuest||!$('#credentialPanel'))return;
   if(key==='gitSshKey')return openGitSSHKeys();
+  if(key==='codexSubscription'){closeCredentialWizard(true);return codexSubscriptionConnect($('#credentialPanel [data-credential-row="codexSubscription"]'))}
   const preset=key?credentialKind(key):null;
   if(preset&&credentialConfigured(preset,user))return revealCredentialRow(key);
   const kind=preset||CREDENTIAL_RECOMMENDED.map(credentialKind).find(k=>!credentialConfigured(k,user))||CREDENTIAL_KINDS.find(k=>!credentialConfigured(k,user))||null;
@@ -1088,6 +1251,7 @@ function credentialWizardClick(event){
   const link=target.closest('[data-wizard-link]');if(link)return markCredentialGuide(Number(link.dataset.wizardLink));
   const option=target.closest('[data-wizard-kind]');
   if(option&&!option.disabled){
+    if(option.dataset.wizardKind==='codexSubscription'){closeCredentialWizard(true);return codexSubscriptionConnect($('#credentialPanel [data-credential-row="codexSubscription"]'))}
     selectCredentialWizardKind(option.dataset.wizardKind);
     option.parentElement.closest('.credential-pane').querySelectorAll('[data-wizard-kind]').forEach(item=>{const on=item===option;item.classList.toggle('is-selected',on);item.setAttribute('aria-checked',String(on))});
     refreshCredentialWizardFoot();
@@ -1104,6 +1268,10 @@ async function advanceCredentialWizard(){
     if(wizard.kind==='gitSshKey'){
       closeCredentialWizard(true);
       return openGitSSHKeys();
+    }
+    if(wizard.kind==='codexSubscription'){
+      closeCredentialWizard(true);
+      return codexSubscriptionConnect($('#credentialPanel [data-credential-row="codexSubscription"]'));
     }
     wizard.step=2;paintCredentialWizard(1);setTimeout(focusCredentialWizard,220);return;
   }
@@ -1206,6 +1374,7 @@ const PLATFORM_TABS=[
   {id:'accounts',zh:'成员账号',en:'Accounts'},
   {id:'admins',zh:'平台管理员',en:'Admins'},
   {id:'sharedKey',zh:'共享 OpenCode Key',en:'Shared OpenCode Key'},
+  {id:'codexSub',zh:'Codex 订阅',en:'Codex subscription'},
 ];
 function platformTabsHTML(active){
   return `<div class="pa-tabs-wrap platform-tabs-wrap"><div class="pa-tabs platform-tabs" id="platformTabs" role="tablist" aria-label="平台管理分区">${PLATFORM_TABS.map(t=>{
@@ -1374,10 +1543,12 @@ function renderPlatformAdminPanel(){
     </div>
     `)}
     ${platformTabPanel('sharedKey',tab,platformSharedKeyHTML())}
+    ${platformTabPanel('codexSub',tab,platformCodexSubscriptionHTML())}
   `;
   bindPlatformTabs(host);
   loadPlatformAccounts(host);
   loadPlatformSharedKey(host);
+  loadPlatformCodexSubscription(host);
   loadPlatformAdmins(host);
 }
 
@@ -1420,6 +1591,24 @@ function platformAccountsHTML(){
         <div class="platform-search-wrap platform-account-search">${PLATFORM_ICON_SEARCH}<input data-account-search placeholder="搜索用户名..." autocomplete="off"></div>
       </div>
       <div id="platformAccountList" class="platform-admin-list platform-account-list"></div>
+    </section>`;
+}
+function platformCodexSubscriptionHTML(){
+  return `
+    <section class="platform-admin-main-card" id="platformCodexSubscriptionCard">
+      <div class="platform-admin-head">
+        <div class="platform-admin-head-meta">
+          <h2>Codex 订阅</h2>
+          <p>允许用户用自己的 ChatGPT/Codex 订阅跑 Codex 任务。订阅任务照常记录 Token，成本按 0 计；执行机器上的订阅经平台网关，refresh token 不会下发到机器。设备码登录需要在每个账号的 ChatGPT 安全设置或工作区权限里开启；未开启时可临时打开 auth.json 兜底。</p>
+        </div>
+        <span class="platform-admin-count-pill platform-status-pill" data-codex-admin-badge>${lfT('加载中','Loading')}</span>
+      </div>
+      <div class="platform-shared-key-form">
+        <label class="platform-check"><input type="checkbox" data-codex-admin-enabled><span>允许用户连接 Codex 订阅</span></label>
+        <label class="platform-check"><input type="checkbox" data-codex-admin-authjson><span>允许粘贴 auth.json 兜底（仅设备码不可用时）</span></label>
+        <p class="platform-note" data-codex-admin-meta></p>
+        <div class="platform-shared-key-actions"><button class="button primary" type="button" data-codex-admin-save>保存</button></div>
+      </div>
     </section>`;
 }
 function platformSharedKeyHTML(){
@@ -1543,6 +1732,33 @@ async function loadPlatformAccounts(host){
     finally{if(submit)submit.disabled=false}
   };
   await load();
+}
+async function loadPlatformCodexSubscription(host){
+  const card=host?.querySelector('#platformCodexSubscriptionCard');
+  if(!card)return;
+  const badge=card.querySelector('[data-codex-admin-badge]'),meta=card.querySelector('[data-codex-admin-meta]');
+  try{
+    const data=await api('/api/platform/codex-subscription',{silent:true});
+    card.querySelector('[data-codex-admin-enabled]').checked=!!data.enabled;
+    card.querySelector('[data-codex-admin-authjson]').checked=!!data.authJsonAllowed;
+    if(badge)badge.textContent=data.enabled?lfT('已开启','On'):lfT('已关闭','Off');
+    if(meta)meta.textContent=`${data.connectedUsers||0} 人已连接${data.credentialKeyConfigured?'':'；服务端未配置 AGENTFLOW_CREDENTIAL_KEY，暂不能开启'}`;
+  }catch(err){
+    if(badge)badge.textContent=lfT('加载失败','Load failed');
+    if(meta)meta.textContent=err.message;
+  }
+  card.querySelector('[data-codex-admin-save]').onclick=async event=>{
+    const button=event.currentTarget;button.disabled=true;
+    try{
+      await api('/api/platform/codex-subscription',{method:'PUT',body:JSON.stringify({
+        enabled:card.querySelector('[data-codex-admin-enabled]').checked,
+        authJsonAllowed:card.querySelector('[data-codex-admin-authjson]').checked,
+      })});
+      toast(lfT('Codex 订阅设置已保存','Codex subscription settings saved'));
+      await loadPlatformCodexSubscription(host);
+    }catch(err){toast(err.message)}
+    finally{button.disabled=false}
+  };
 }
 async function loadPlatformSharedKey(host){
   const card=host.querySelector('#platformSharedKeyCard');if(!card)return;

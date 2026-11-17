@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"agentflow/internal/domain"
 	"agentflow/internal/observability"
 	"fmt"
 	"net/url"
@@ -43,7 +44,7 @@ func bindCommand(sandbox Sandbox, workspace string, command CommandSpec, credent
 	bound.environment["CODEBUDDY_API_KEY"] = ""
 	bound.environment["CODEBUDDY_INTERNET_ENVIRONMENT"] = ""
 	bound.environment["AGENTFLOW_GIT_TOKEN"] = ""
-	for _, key := range []string{"OPENAI_API_KEY", "CODEX_API_KEY", "OPENAI_BASE_URL", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY"} {
+	for _, key := range []string{"OPENAI_API_KEY", "CODEX_API_KEY", "CODEX_ACCESS_TOKEN", "AGENTFLOW_CODEX_GATEWAY_TOKEN", "OPENAI_BASE_URL", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY"} {
 		bound.environment[key] = ""
 	}
 	if command.Provider == "codebuddy" {
@@ -102,15 +103,46 @@ func bindCommand(sandbox Sandbox, workspace string, command CommandSpec, credent
 			}
 			bound.Argv = BindMCPCallArgv(sandbox, bound.Argv)
 		case BindCodex:
-			bound.environment["CODEX_API_KEY"] = strings.TrimSpace(credentials.Codex.APIKey)
-			if bound.environment["CODEX_API_KEY"] == "" {
-				return CommandSpec{}, fmt.Errorf("需求责任人未配置 Codex API Key，请在个人配置中配置")
+			cred := credentials.Codex
+			if strings.TrimSpace(cred.AuthError) != "" {
+				return CommandSpec{}, fmt.Errorf("%s", strings.TrimSpace(cred.AuthError))
 			}
-			argv, err := CodexUserProviderArgv(bound.Argv, credentials.Codex.BaseURL)
-			if err != nil {
-				return CommandSpec{}, err
+			switch strings.TrimSpace(cred.AuthMode) {
+			case domain.CodexAuthSubscription:
+				if len(cred.AuthJSON) == 0 {
+					return CommandSpec{}, fmt.Errorf("Codex 订阅凭据不可用，请重新连接订阅")
+				}
+				path, root, err := codexAuthFileTarget(command, bound, workspace)
+				if err != nil {
+					return CommandSpec{}, err
+				}
+				if err := WriteCodexAuthFile(root, path, cred.AuthJSON); err != nil {
+					return CommandSpec{}, fmt.Errorf("写入 Codex 订阅凭据失败：%w", err)
+				}
+				bound.environment["CODEX_API_KEY"] = ""
+				bound.Argv = insertBeforeLast(bound.Argv, "-c", `cli_auth_credentials_store="file"`)
+			case domain.CodexAuthGateway:
+				if strings.TrimSpace(cred.GatewayURL) == "" || strings.TrimSpace(cred.GatewayToken) == "" {
+					return CommandSpec{}, fmt.Errorf("Codex 订阅网关凭据不可用，请重新连接订阅")
+				}
+				bound.environment["AGENTFLOW_CODEX_GATEWAY_TOKEN"] = strings.TrimSpace(cred.GatewayToken)
+				bound.Argv = insertBeforeLast(bound.Argv, codexGatewayProviderArgs(cred.GatewayURL)...)
+			case domain.CodexAuthAccessToken:
+				if strings.TrimSpace(cred.APIKey) == "" {
+					return CommandSpec{}, fmt.Errorf("Codex access token 未配置")
+				}
+				bound.environment["CODEX_ACCESS_TOKEN"] = strings.TrimSpace(cred.APIKey)
+			default:
+				bound.environment["CODEX_API_KEY"] = strings.TrimSpace(cred.APIKey)
+				if bound.environment["CODEX_API_KEY"] == "" {
+					return CommandSpec{}, fmt.Errorf("需求责任人未配置 Codex API Key，请在个人配置中配置")
+				}
+				argv, err := CodexUserProviderArgv(bound.Argv, cred.BaseURL)
+				if err != nil {
+					return CommandSpec{}, err
+				}
+				bound.Argv = argv
 			}
-			bound.Argv = argv
 		case BindClaudeCode:
 			bound.environment["ANTHROPIC_API_KEY"] = strings.TrimSpace(credentials.ClaudeCode.APIKey)
 			if bound.environment["ANTHROPIC_API_KEY"] == "" {

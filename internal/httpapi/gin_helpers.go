@@ -193,7 +193,7 @@ func gzipMaybe() gin.HandlerFunc {
 			c.Next()
 			return
 		}
-		if strings.Contains(c.Request.URL.Path, "/stream") || strings.HasPrefix(c.Request.URL.Path, "/api/otel/") || strings.Contains(c.GetHeader("Accept"), "text/event-stream") {
+		if strings.Contains(c.Request.URL.Path, "/stream") || strings.HasPrefix(c.Request.URL.Path, "/api/otel/") || strings.HasPrefix(c.Request.URL.Path, "/api/codex-gateway/") || strings.Contains(c.GetHeader("Accept"), "text/event-stream") {
 			c.Next()
 			return
 		}

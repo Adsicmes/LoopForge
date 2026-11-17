@@ -16,7 +16,7 @@ func TestValidateInsightUsageAmounts(t *testing.T) {
 		inclusion  = "缓存 Token 必须包含在输入中，推理 Token 必须包含在输出中"
 		unknownSet = "未知成本必须为 null"
 		knownCost  = "已知成本须为 0–10^9 USD"
-		badStatus  = "costStatus 必须为 reported、estimated 或 unknown"
+		badStatus  = "costStatus 必须为 reported、estimated、included 或 unknown"
 	)
 	cases := []struct {
 		name   string
@@ -26,6 +26,9 @@ func TestValidateInsightUsageAmounts(t *testing.T) {
 		{"valid boundaries", func(u *domain.InsightUsage) {}, ""},
 		{"max tokens", func(u *domain.InsightUsage) { u.InputTokens, u.OutputTokens = 1e12, 1e12 }, ""},
 		{"estimated max cost", func(u *domain.InsightUsage) { u.CostStatus, u.CostUSD = "estimated", f(1e9) }, ""},
+		{"included zero cost", func(u *domain.InsightUsage) { u.CostStatus, u.CostUSD = "included", f(0) }, ""},
+		{"included without cost", func(u *domain.InsightUsage) { u.CostStatus, u.CostUSD = "included", nil }, ""},
+		{"included with cost", func(u *domain.InsightUsage) { u.CostStatus, u.CostUSD = "included", f(1) }, "订阅包含的成本必须为 0"},
 		{"unknown nil cost", func(u *domain.InsightUsage) { u.CostStatus, u.CostUSD = "unknown", nil }, ""},
 		{"negative input", func(u *domain.InsightUsage) { u.InputTokens = -1 }, tokenRange},
 		{"too many output", func(u *domain.InsightUsage) { u.OutputTokens = 1e12 + 1 }, tokenRange},
@@ -67,7 +70,7 @@ func TestValidateInsightExecutionDuplicateBeforeAmounts(t *testing.T) {
 	}
 	v.Usage = v.Usage[:1]
 	v.Usage[0].CostStatus = "free"
-	if got := validateInsightExecution(&v, v.FinishedAt); got != "costStatus 必须为 reported、estimated 或 unknown" {
+	if got := validateInsightExecution(&v, v.FinishedAt); got != "costStatus 必须为 reported、estimated、included 或 unknown" {
 		t.Fatalf("amount errors should still surface, got %q", got)
 	}
 }

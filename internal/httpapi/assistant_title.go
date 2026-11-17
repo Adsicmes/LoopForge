@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"agentflow/internal/domain"
+	"agentflow/internal/runtime"
 )
 
 const assistantTitleSummaryPolicy = `你是会话标题生成器。只根据 JSON 里的 prompt 概括用户想做的事，生成一个不超过 16 个字的中文标题。
@@ -102,7 +103,7 @@ func (h *assistantHandlers) scheduleAssistantTitle(ctx context.Context, ownerID 
 		if h.titleSummary != nil {
 			title, err = h.titleSummary(runCtx, user, prompt)
 		} else {
-			title, err = summarizeAssistantTitle(runCtx, user, model, prompt, shared)
+			title, err = summarizeAssistantTitle(runCtx, user, model, prompt, shared, h.codexCredential(user, false, ""))
 		}
 		if err != nil || strings.TrimSpace(title) == "" {
 			log.Printf("assistant title summary skipped session=%s: %s", sessionID, sanitizeAssistantDiagnostic(fmt.Sprint(err), user, 4096))
@@ -131,14 +132,19 @@ func assistantTitleModel(ctx context.Context, user domain.User, model string, sh
 	return catalog.Default, ""
 }
 
-func summarizeAssistantTitle(ctx context.Context, user domain.User, model, prompt string, shared []string) (string, error) {
+func summarizeAssistantTitle(ctx context.Context, user domain.User, model, prompt string, shared []string, codexAuth ...*runtime.ProviderCredential) (string, error) {
 	model, effort := assistantTitleModel(ctx, user, model, shared)
-	return runAssistantTitleSummary(ctx, user, model, effort, prompt)
+	return runAssistantTitleSummary(ctx, user, model, effort, prompt, codexAuth...)
 }
 
-func runAssistantTitleSummary(ctx context.Context, user domain.User, model, effort, prompt string) (string, error) {
+func runAssistantTitleSummary(ctx context.Context, user domain.User, model, effort, prompt string, codexAuth ...*runtime.ProviderCredential) (string, error) {
 	engine, _ := assistantModelEngine(model)
-	if key, _ := assistantEngineCredential(user, engine); model == "" || key == "" {
+	var auth *runtime.ProviderCredential
+	if len(codexAuth) > 0 {
+		auth = codexAuth[0]
+	}
+	key, _ := assistantEngineCredential(user, engine)
+	if model == "" || (key == "" && (auth == nil || auth.AuthMode == "")) {
 		return "", fmt.Errorf("title model or credential unavailable")
 	}
 	prompt = strings.TrimSpace(prompt)
@@ -163,6 +169,7 @@ func runAssistantTitleSummary(ctx context.Context, user domain.User, model, effo
 		SystemPrompt: assistantTitleSummaryPolicy,
 		SessionRoot:  root,
 		ReviewOnly:   true,
+		CodexAuth:    auth,
 	}, user, nil)
 	if err != nil {
 		return "", err

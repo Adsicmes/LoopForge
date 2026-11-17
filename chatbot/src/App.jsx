@@ -1734,6 +1734,7 @@ export default function App() {
                 <span>
                   当前执行器 {activeExecutorOption.label || chat.executor} 需要先配置 API Key，或让管理员配置平台共享 Key。
                   {chat.user.codexApiKeyConfigured ||
+                  chat.user.codexSubscriptionConfigured ||
                   chat.user.claudeCodeApiKeyConfigured
                     ? "你已配置 Codex / Claude Code Key，也可以在输入框下方把执行器切换过去。"
                     : ""}

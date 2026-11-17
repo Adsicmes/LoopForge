@@ -142,11 +142,11 @@ func (h *assistantHandlers) runTaskNow(c *gin.Context) {
 		engine = assistantEngineOpenCode
 	}
 	if engine == assistantEngineOpenCode {
-		if _, credentialOK := openCodeProviderCredential(h.repo, user.ID); !credentialOK {
+		if _, credentialOK := openCodeProviderCredential(h.repo, user.ID); !ok || !credentialOK {
 			c.JSON(400, gin.H{"error": "请先在个人配置中配置自己的 OpenCode API Key，或让管理员配置平台共享 Key"})
 			return
 		}
-	} else if key, _ := assistantEngineCredential(user, engine); !ok || key == "" {
+	} else if !h.engineAvailable(user, engine) {
 		msg := "请先在个人配置中配置自己的 CodeBuddy API Key"
 		if engine != assistantEngineCodeBuddy {
 			msg = assistantEngineMissingKey(engine)
@@ -249,13 +249,13 @@ func (h *assistantHandlers) executeAssistantTask(ctx context.Context, user domai
 			return fail("未配置 OpenCode API Key：请先在个人配置中配置，或让管理员配置平台共享 Key")
 		}
 		user = withOpenCodeCredential(user, credential)
-	} else if key, _ := assistantEngineCredential(user, engine); key == "" {
+	} else if !h.engineAvailable(user, engine) {
 		if engine != assistantEngineCodeBuddy {
 			return fail(assistantEngineMissingKey(engine))
 		}
 		return fail("未配置 CodeBuddy API Key")
 	}
-	model, err := scheduledRunModel(ctx, task.Model, user)
+	model, err := scheduledRunModel(ctx, task.Model, user, h.codexSubscriptionSelected(user))
 	if err != nil {
 		return fail(err.Error())
 	}
@@ -451,7 +451,7 @@ func firstNonEmpty(values ...string) string {
 // model list is an in-memory cache that is empty after a restart, so it is
 // refreshed with the owner's key before a model is rejected. A run never
 // silently switches to another, possibly more expensive, model.
-func scheduledRunModel(ctx context.Context, requested string, user domain.User) (string, error) {
+func scheduledRunModel(ctx context.Context, requested string, user domain.User, codexSubscription ...bool) (string, error) {
 	requested = strings.TrimSpace(requested)
 	openCodeCredential := func() runtime.ProviderCredential {
 		credential := user.AgentCLICredentials[assistantEngineOpenCode]
@@ -482,13 +482,14 @@ func scheduledRunModel(ctx context.Context, requested string, user domain.User) 
 		return "", fmt.Errorf("定时任务指定的模型 %s 不在 OpenCode 允许的模型中，本次没有运行；请在定时任务里改选可用的模型", model)
 	}
 	env := user.CodeBuddyInternetEnvironment
-	model := assistantAllowedUserModel(requested, loadAssistantModels(ctx, env), user)
+	hasCodexSubscription := len(codexSubscription) > 0 && codexSubscription[0]
+	model := assistantAllowedUserModel(requested, loadAssistantModels(ctx, env), user, hasCodexSubscription)
 	if requested == "" || model == requested {
 		return model, nil
 	}
 	if engine, _ := assistantModelEngine(requested); engine == assistantEngineCodeBuddy {
 		refreshCLIModels(ctx, env, user.CodeBuddyAPIKey)
-		if model = assistantAllowedUserModel(requested, loadAssistantModels(ctx, env), user); model == requested {
+		if model = assistantAllowedUserModel(requested, loadAssistantModels(ctx, env), user, hasCodexSubscription); model == requested {
 			return model, nil
 		}
 	}

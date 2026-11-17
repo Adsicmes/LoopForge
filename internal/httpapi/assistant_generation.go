@@ -97,7 +97,7 @@ func (h *assistantHandlers) startGeneration(c *gin.Context) {
 	if catalogEngine == assistantEngineCodeBuddy {
 		catalog = h.chatCatalog(c.Request.Context(), user)
 	}
-	req.Model = assistantAllowedUserModel(req.Model, catalog, user)
+	req.Model = assistantAllowedUserModel(req.Model, catalog, user, h.codexSubscriptionSelected(user))
 	cliEngine, _ = assistantModelEngine(req.Model)
 	req.Executor = cliEngine
 	if err := validateAssistantEffort(user, req.Model, req.Effort); err != nil {

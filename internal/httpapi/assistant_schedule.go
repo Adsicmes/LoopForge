@@ -72,8 +72,7 @@ func (h *assistantHandlers) scheduleJobAssistantUser(job domain.ScheduleJob, mod
 			_, credentialOK := openCodeProviderCredential(h.repo, id)
 			return user, credentialOK
 		}
-		key, _ := assistantEngineCredential(user, engine)
-		return user, key != ""
+		return user, h.engineAvailable(user, engine)
 	}
 	if project, ok := h.repo.Project(job.ProjectID); ok {
 		if user, ok := try(project.OwnerID); ok {

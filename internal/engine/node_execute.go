@@ -774,6 +774,16 @@ func (e *Engine) executeNode(ctx context.Context, runID string, wf domain.Workfl
 			} else {
 				ex = resolved
 			}
+			if ex.Kind == "codex" {
+				mode := sb.credentialSnapshot().Codex.AuthMode
+				if mode != "" {
+					e.updateRun(runID, func(r *domain.Run) {
+						if nr := r.Nodes[node.ID]; nr != nil {
+							nr.AuthMode = mode
+						}
+					})
+				}
+			}
 			if execMachine := e.defaultExecutionRunner(current); execMachine != "" {
 				// 执行机器 mode (bind-cli): the responsible user selected a default
 				// execution machine, so the compiled task book, asset bundle, and
@@ -801,7 +811,14 @@ func (e *Engine) executeNode(ctx context.Context, runID string, wf domain.Workfl
 			if bindErr != nil {
 				return "", bindErr
 			}
-			return e.runner.Run(ctx, sb, invocationID, ex, agent, boundAssets, prompt, options, sink)
+			releaseCodex, leaseErr := e.acquireCodexRunLease(ctx, current.ExecutionContext.ResponsibleUserID, invocationID, sb.credentialSnapshot().Codex, sink)
+			if leaseErr != nil {
+				return "", leaseErr
+			}
+			defer releaseCodex()
+			out, runErr := e.runner.Run(ctx, sb, invocationID, ex, agent, boundAssets, prompt, options, sink)
+			e.captureCodexSubscription(current, sb)
+			return out, runErr
 		}
 	}
 	if err != nil {

@@ -70,6 +70,11 @@ func protectedAccessPath(path string) bool {
 	if path == "/mcp" {
 		return true
 	}
+	if strings.HasPrefix(path, "/api/codex-gateway/") {
+		// The gateway authenticates its own run-scoped token; runners have no
+		// interactive session cookie.
+		return false
+	}
 	if !strings.HasPrefix(path, "/api/") {
 		return false
 	}

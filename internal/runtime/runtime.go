@@ -56,6 +56,22 @@ type ProviderCredential struct {
 	Models []domain.CLIModel
 	// Sponsored marks a credential lent by the platform (OpenCode shared key).
 	Sponsored bool
+	// AuthMode selects the Codex authentication path: empty/"api_key" is the
+	// existing API-key provider, "subscription" writes auth.json, "gateway"
+	// points Codex at the platform gateway, and "access_token" uses
+	// CODEX_ACCESS_TOKEN.
+	AuthMode string
+	// AuthJSON and AuthGeneration are runtime-only. They must never be
+	// serialized into a runner task or conversation command.
+	AuthJSON       []byte `json:"-"`
+	AuthGeneration int64  `json:"-"`
+	// AuthError is a user-facing preflight reason (disabled feature, missing
+	// subscription, needs re-login) that BindCodex returns before launch.
+	AuthError string
+	// Gateway fields are short-lived, run-scoped credentials for V2.
+	GatewayURL       string
+	GatewayToken     string
+	GatewayExpiresAt time.Time
 }
 
 type InvocationOptions struct {

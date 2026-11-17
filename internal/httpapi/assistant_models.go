@@ -226,9 +226,9 @@ func (h *assistantHandlers) models(c *gin.Context) {
 		_, hasSharedOpenCode := h.assistantSharedOpenCode()
 		personalOpenCode := strings.TrimSpace(user.AgentCLICredentials[runtime.AgentCLIOpenCode].APIKey) != ""
 		user = h.assistantOpenCodeUser(user)
-		catalog.Models = append(catalog.Models, assistantEngineModels(c.Request.Context(), user)...)
+		catalog.Models = append(catalog.Models, assistantEngineModels(c.Request.Context(), user, h.codexSubscriptionSelected(user))...)
 		h.saveCursorCatalog(user)
-		catalog.Engines = assistantEngineOptions(user, hasSharedOpenCode && !personalOpenCode)
+		catalog.Engines = h.assistantEngineOptions(user, hasSharedOpenCode && !personalOpenCode)
 		// OpenCode is the primary executor. Its first configured model becomes
 		// the composer's default; without an OpenCode credential the default
 		// still points at OpenCode so the turn fails with a configuration
