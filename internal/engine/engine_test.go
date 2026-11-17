@@ -3988,6 +3988,18 @@ func TestApplyUsageAccumulatesIndependentSessions(t *testing.T) {
 	}
 }
 
+func TestApplyUsageIncludedAuthMode(t *testing.T) {
+	t.Parallel()
+	run := domain.Run{}
+	nr := domain.NodeRun{AuthMode: domain.CodexAuthSubscription}
+	applyUsage(&run, &nr, "s1", domain.TokenUsage{InputTokens: 10, OutputTokens: 2, CostUSD: 1.25, CostStatus: "estimated"})
+	for name, usage := range map[string]domain.TokenUsage{"run": run.Usage, "node": nr.Usage} {
+		if usage.CostUSD != 0 || usage.CostStatus != "included" || usage.InputTokens != 10 || usage.OutputTokens != 2 {
+			t.Fatalf("%s usage = %+v", name, usage)
+		}
+	}
+}
+
 func TestApplyUsagePropagatesCostStatus(t *testing.T) {
 	t.Parallel()
 	run := domain.Run{}

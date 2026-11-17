@@ -177,6 +177,56 @@ func TestPlatformSettings(t *testing.T) {
 	}
 }
 
+func TestCodexSubscriptionMissingUser(t *testing.T) {
+	testCodexCredentialKey(t)
+	s, err := OpenTest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if _, ok := s.CodexSubscriptionStatus(999); ok {
+		t.Fatal("status for an unknown user")
+	}
+	if sub, ok := s.CodexSubscription(0); ok || len(sub.AuthJSON) != 0 {
+		t.Fatalf("subscription for user 0 = %+v ok=%v", sub, ok)
+	}
+	if err := s.DeleteCodexSubscriptionAndMode(0); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := s.AcquireCodexRunLease(0, "owner", time.Minute); ok || err == nil {
+		t.Fatalf("lease for user 0 = %v %v", ok, err)
+	}
+}
+
+func TestCountCodexSubscriptions(t *testing.T) {
+	testCodexCredentialKey(t)
+	s, err := OpenTest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if got := s.CountCodexSubscriptions(); got != 0 {
+		t.Fatalf("initial count = %d", got)
+	}
+	first := testCodexUser(t, s, "codex-count-1")
+	second := testCodexUser(t, s, "codex-count-2")
+	if _, err := s.SaveCodexSubscriptionAndMode(first.ID, testCodexAuthJSON("one@example.com")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.SaveCodexSubscriptionAndMode(second.ID, testCodexAuthJSON("two@example.com")); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.CountCodexSubscriptions(); got != 2 {
+		t.Fatalf("count = %d, want 2", got)
+	}
+	if err := s.DeleteCodexSubscriptionAndMode(first.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.CountCodexSubscriptions(); got != 1 {
+		t.Fatalf("count after delete = %d, want 1", got)
+	}
+}
+
 func TestScrubRunnerTaskCredentialsDropsCodexGateway(t *testing.T) {
 	task := domain.RunnerTask{Invocation: &domain.RunnerInvocation{
 		CodexAuthMode:         domain.CodexAuthGateway,
