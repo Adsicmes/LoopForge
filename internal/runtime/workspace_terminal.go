@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"agentflow/internal/domain"
+	"agentflow/internal/gitwork"
 	"github.com/creack/pty"
 	"golang.org/x/sys/unix"
 )
@@ -85,7 +86,7 @@ func (p *TerminalPool) HandleSandboxWithGitSSH(ctx context.Context, sandbox Sand
 	var bind func(*CommandSpec) error
 	if len(keys) > 0 && sandbox != nil {
 		bind = func(command *CommandSpec) error {
-			stop, err := BindTerminalGitSSH(sandbox, command, keys)
+			stop, err := BindTerminalGitSSH(sandbox, command, keys, gitwork.SSHTrust(ctx))
 			if err == nil {
 				stopSSH = stop
 			}

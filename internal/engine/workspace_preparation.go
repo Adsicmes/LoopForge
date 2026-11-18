@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"agentflow/internal/domain"
+	"agentflow/internal/gitwork"
 	"agentflow/internal/procwatch"
 	"agentflow/internal/repo"
 	"agentflow/internal/runtime"
@@ -147,14 +148,20 @@ func (e *Engine) preparedWorkspaceRequest(run domain.Run, request domain.RunnerW
 	// Status and terminal I/O don't need keys. A separate platform instance
 	// can also resolve its own credentials from the shared store.
 	request.TerminalGitSSHKeys = nil
+	request.TerminalGitSSHTrust = nil
 	terminalOpen := request.Operation == domain.RunnerWorkspaceOperationTerminal && request.Terminal != nil && request.Terminal.Operation == "open"
 	sshRemotes := invocation.GitSSHRemotes()
 	if runnerID != "" && len(sshRemotes) > 0 {
 		if request.Operation == domain.RunnerWorkspaceOperationPrepare || terminalOpen {
+			if credentials.GitSSHTrustError != "" {
+				return request, fmt.Errorf("%s", credentials.GitSSHTrustError)
+			}
 			invocation.GitSSHKeys = credentials.GitSSHKeys
+			invocation.GitSSHTrust = credentials.GitSSHTrust
 		}
 		if terminalOpen {
 			request.TerminalGitSSHKeys = e.repo.GitSSHKeysForRemotes(request.TerminalOwner, sshRemotes)
+			request.TerminalGitSSHTrust = credentials.GitSSHTrust
 		}
 	}
 	request.RunStatus = run.Status
@@ -371,6 +378,11 @@ func (e *Engine) HandlePreparedWorkspaceTerminal(ctx context.Context, run domain
 		for remote := range sshKeys {
 			remotes = append(remotes, remote)
 		}
+		trust, err := e.repo.SSHHostSnapshot(remotes)
+		if err != nil {
+			return runtime.TerminalResult{}, err
+		}
+		ctx = gitwork.WithSSHTrust(ctx, trust)
 		return pool.HandleSandboxWithGitSSH(ctx, env.sandbox, scope, req, nil, e.repo.GitSSHKeysForRemotes(actorID, remotes))
 	}
 	return pool.HandleSandbox(ctx, env.sandbox, scope, req, nil)

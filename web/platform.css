@@ -1538,6 +1538,23 @@ textarea.pa-input{height:auto;min-height:76px;padding:9px 11px;resize:vertical;l
 .platform-input-wrap .button.small{flex:none;padding:4px 9px;font-size:12px}
 .platform-check{display:inline-flex;align-items:center;gap:7px;font-size:13px;color:var(--text);cursor:pointer;white-space:nowrap}
 .platform-check input{margin:0;accent-color:var(--blue)}
+.platform-ssh-hosts > label,
+.platform-ssh-hosts .platform-admin-form label{display:flex;flex-direction:column;gap:6px;min-width:0;margin:12px 0;color:var(--text)}
+.platform-ssh-hosts .platform-admin-form label:first-child{flex:1}
+.platform-ssh-hosts textarea,
+.platform-ssh-hosts select,
+.platform-ssh-hosts .platform-admin-form input{
+  box-sizing:border-box;width:100%;min-width:0;padding:10px 12px;
+  color:var(--text);background:var(--panel,#fff) !important;
+  border:1px solid var(--line-strong) !important;border-radius:10px;
+}
+.platform-ssh-hosts textarea{resize:vertical;min-height:110px}
+.platform-ssh-hosts input:focus-visible,
+.platform-ssh-hosts textarea:focus-visible,
+.platform-ssh-hosts select:focus-visible{outline:2px solid var(--blue) !important;outline-offset:2px}
+.platform-ssh-hosts [data-ssh-candidates] .platform-check{display:flex;align-items:flex-start;white-space:normal;overflow-wrap:anywhere;margin:10px 0}
+.platform-ssh-hosts [data-ssh-list] code{overflow-wrap:anywhere}
+.platform-ssh-hosts [data-ssh-status]{margin:10px 0;overflow-wrap:anywhere}
 .platform-account-search{max-width:320px}
 .platform-account-list{max-height:560px;overflow:auto;padding-right:2px}
 .platform-account-row .platform-admin-meta{flex-wrap:wrap;gap:6px}

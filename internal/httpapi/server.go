@@ -94,6 +94,7 @@ type Server struct {
 	know            *knowledgeHandlers // knowledge.go / knowledge_proxy.go
 	feedback        *feedbackHandlers  // page_feedback.go
 	codexSub        *codexSubscriptionHandlers
+	sshHosts        *sshHostsHandlers
 }
 
 func New(s *repo.Store, e *engine.Engine, syncSvc *tracker.Service, basicUser, basicPass string) *gin.Engine {
@@ -174,6 +175,7 @@ func newWithNotifications(s *repo.Store, e *engine.Engine, syncSvc *tracker.Serv
 		know:            &knowledgeHandlers{deps: d, svc: knowledge.NewService(d.repo, randomID), activity: &knowledgeActivityLog{}},
 		feedback:        &feedbackHandlers{deps: d},
 		codexSub:        newCodexSubscriptionHandlers(d),
+		sshHosts:        &sshHostsHandlers{deps: d},
 	}
 	e.WorkspaceActive = func(run domain.Run) bool { return api.runs.terminals.HasRunScope(run.ID) }
 	api.catalog.notifications = api.notifications
@@ -259,6 +261,11 @@ func newWithNotifications(s *repo.Store, e *engine.Engine, syncSvc *tracker.Serv
 	g.DELETE("/api/auth/tokens/:id", api.tokens.authToken)
 	g.GET("/api/users", api.users.users)
 	g.GET("/api/platform/admins", api.users.platformAdmins)
+	g.GET("/api/platform/ssh-hosts", api.sshHosts.list)
+	g.POST("/api/platform/ssh-hosts", api.sshHosts.save)
+	g.DELETE("/api/platform/ssh-hosts/:id", api.sshHosts.remove)
+	g.POST("/api/platform/ssh-hosts/preview", api.sshHosts.preview)
+	g.POST("/api/platform/ssh-hosts/scan", api.sshHosts.scan)
 	g.PUT("/api/platform/admins", api.users.platformAdmins)
 	g.GET("/api/platform/accounts", api.users.platformAccounts)
 	g.POST("/api/platform/accounts", api.users.platformAccounts)

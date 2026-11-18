@@ -757,7 +757,7 @@ func (d *Daemon) executeTerminal(ctx context.Context, task domain.RunnerTask) ex
 		if err != nil {
 			return execResult{status: domain.RunnerTaskFailed, errMsg: fmt.Sprintf("prepare git credentials: %v", err)}
 		}
-		cleanup, err := runtime.BindGitSSH(sandbox, workspace, gitEnv, task.Invocation.GitSSHKeys)
+		cleanup, err := runtime.BindGitSSH(sandbox, workspace, gitEnv, task.Invocation.GitSSHKeys, task.Invocation.GitSSHTrust)
 		if err != nil {
 			return execResult{status: domain.RunnerTaskFailed, errMsg: fmt.Sprintf("prepare git credentials: %v", err)}
 		}
@@ -892,7 +892,7 @@ func (d *Daemon) executeInvocation(ctx context.Context, task domain.RunnerTask) 
 		if gitErr != nil {
 			return execResult{status: domain.RunnerTaskFailed, errMsg: fmt.Sprintf("prepare git credentials: %v", gitErr)}, nil
 		}
-		cleanup, gitErr := runtime.BindGitSSH(sandbox, workspace, gitEnv, inv.GitSSHKeys)
+		cleanup, gitErr := runtime.BindGitSSH(sandbox, workspace, gitEnv, inv.GitSSHKeys, inv.GitSSHTrust)
 		if gitErr != nil {
 			return execResult{status: domain.RunnerTaskFailed, errMsg: fmt.Sprintf("prepare git credentials: %v", gitErr)}, nil
 		}
@@ -1126,6 +1126,7 @@ func checkoutInvocationRepositories(ctx context.Context, workspace string, inv *
 		return nil
 	}
 	ctx = gitwork.WithSSHKeys(ctx, inv.GitSSHKeys)
+	ctx = gitwork.WithSSHTrust(ctx, inv.GitSSHTrust)
 	repos := invocationRepositories(inv)
 	for i := range repos {
 		repo := repos[i]
@@ -1401,7 +1402,7 @@ func (d *Daemon) defaultWorkspace(taskID string) string {
 }
 
 // runnerVersion is reported at registration; it matches the module build.
-var runnerVersion = "0.11.0"
+var runnerVersion = "0.12.0"
 
 // Version returns the runner build version reported at registration.
 func Version() string { return runnerVersion }

@@ -498,6 +498,7 @@ func (e *Engine) executeNode(ctx context.Context, runID string, wf domain.Workfl
 	gitTok := gitCredentials.GitToken
 	ctx = withGitToken(ctx, gitTok)
 	ctx = gitwork.WithSSHKeys(ctx, gitCredentials.GitSSHKeys)
+	ctx = gitwork.WithSSHTrustError(gitwork.WithSSHTrust(ctx, gitCredentials.GitSSHTrust), gitCredentials.GitSSHTrustError)
 	ctx = withGitIdentity(ctx, sb.credentialSnapshot().GitUserName, sb.credentialSnapshot().GitUserEmail)
 	// Repository checkout and Agent-configuration index isolation belong to the
 	// run environment, not to each node. The same checkout and .git/index are

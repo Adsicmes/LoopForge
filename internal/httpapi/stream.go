@@ -318,6 +318,11 @@ func (h *streamHandlers) prepareClarifyRepo(ctx context.Context, repo domain.Rep
 			return "", false, gitwork.ErrSSHKeyRequired.Error()
 		}
 		ctx = gitwork.WithSSHKeys(ctx, keys)
+		trust, err := h.repo.SSHHostSnapshot([]string{repo.CloneURL})
+		if err != nil {
+			return "", false, err.Error()
+		}
+		ctx = gitwork.WithSSHTrust(ctx, trust)
 		// A private SSH checkout is never shared across users, changed
 		// repository bindings, or a removed or replaced key.
 		cacheKey += fmt.Sprintf("\x00%d\x00%s\x00%x", responsibleUserID, repo.CloneURL, sha256.Sum256([]byte(key)))

@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -10,7 +11,7 @@ import (
 
 // BindGitSSH keeps the SSH agent alive for exactly one command. Only the
 // public configuration and socket are visible in the sandbox's control dir.
-func BindGitSSH(sandbox Sandbox, workspace string, environment map[string]string, keys map[string]string) (func(), error) {
+func BindGitSSH(sandbox Sandbox, workspace string, environment map[string]string, keys map[string]string, trust ...[]byte) (func(), error) {
 	if len(keys) == 0 {
 		return func() {}, nil
 	}
@@ -23,14 +24,17 @@ func BindGitSSH(sandbox Sandbox, workspace string, environment map[string]string
 		clientRoot = "/workspace/.agentflow/runtime"
 	}
 	environment["GIT_ALLOW_PROTOCOL"] = gitwork.AllowedProtocols
-	return gitwork.StartSSH(environment, keys, root, clientRoot)
+	return gitwork.StartSSH(environment, keys, root, clientRoot, trust...)
 }
 
 func bindCommandGitSSH(sandbox Sandbox, workspace string, command CommandSpec, credentials RunCredentials) (func(), error) {
 	if !slices.Contains(command.CredentialBindings, BindGit) {
 		return func() {}, nil
 	}
-	return BindGitSSH(sandbox, filepath.Clean(workspace), command.environment, credentials.GitSSHKeys)
+	if credentials.GitSSHTrustError != "" {
+		return nil, errors.New(credentials.GitSSHTrustError)
+	}
+	return BindGitSSH(sandbox, filepath.Clean(workspace), command.environment, credentials.GitSSHKeys, credentials.GitSSHTrust)
 }
 
 // terminalGitSSHUnavailable is the GIT_SSH_COMMAND of a terminal whose sandbox
@@ -50,7 +54,7 @@ const terminalGitSSHUnavailable = `sh -c 'echo "当前工作区环境无法把�
 //   - docker, seatbelt and anything else share one filesystem view among all
 //     processes of the workspace, so the requester's key is not offered and
 //     SSH remotes fail with a hint to use the platform's submit/push.
-func BindTerminalGitSSH(sandbox Sandbox, command *CommandSpec, keys map[string]string) (func(), error) {
+func BindTerminalGitSSH(sandbox Sandbox, command *CommandSpec, keys map[string]string, trust ...[]byte) (func(), error) {
 	if len(keys) == 0 {
 		return func() {}, nil
 	}
@@ -72,7 +76,7 @@ func BindTerminalGitSSH(sandbox Sandbox, command *CommandSpec, keys map[string]s
 		_ = os.RemoveAll(root)
 		return nil, err
 	}
-	stop, err := gitwork.StartSSH(command.environment, keys, root, "")
+	stop, err := gitwork.StartSSH(command.environment, keys, root, "", trust...)
 	if err != nil {
 		_ = os.RemoveAll(root)
 		return nil, err

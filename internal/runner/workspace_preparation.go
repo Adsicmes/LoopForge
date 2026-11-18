@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"agentflow/internal/domain"
+	"agentflow/internal/gitwork"
 	"agentflow/internal/runtime"
 )
 
@@ -148,6 +149,7 @@ func (d *Daemon) handleRunnerWorkspaceTerminal(ctx context.Context, root, scope 
 		gate.RLock()
 		release = onceRelease(releaseSandbox, gate.RUnlock)
 	}
+	ctx = gitwork.WithSSHTrust(ctx, request.TerminalGitSSHTrust)
 	result, err := d.workspaceTerminals.HandleSandboxWithGitSSH(ctx, execution, scope, *request.Terminal, release, request.TerminalGitSSHKeys)
 	if err != nil {
 		release()
@@ -164,6 +166,7 @@ func (d *Daemon) workspaceExecutionSandbox(ctx context.Context, sb runtime.Sandb
 	if inv != nil {
 		credentials.GitToken = invocationGitToken(inv)
 		credentials.GitSSHKeys = inv.GitSSHKeys
+		credentials.GitSSHTrust = inv.GitSSHTrust
 		credentials.GitUserName = inv.GitUserName
 		credentials.GitUserEmail = inv.GitUserEmail
 		servers := inv.MCPCallServers
@@ -249,6 +252,7 @@ func (d *Daemon) openBusyGroupTerminal(ctx context.Context, root, scope string, 
 		credentials.GitUserName = inv.GitUserName
 		credentials.GitUserEmail = inv.GitUserEmail
 	}
+	ctx = gitwork.WithSSHTrust(ctx, request.TerminalGitSSHTrust)
 	result, err := d.workspaceTerminals.HandleSandboxWithGitSSH(ctx, runtime.WithSandboxCredentials(sb, credentials), scope, *request.Terminal, release, request.TerminalGitSSHKeys)
 	if err != nil {
 		release()

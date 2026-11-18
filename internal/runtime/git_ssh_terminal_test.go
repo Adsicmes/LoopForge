@@ -10,12 +10,10 @@ import (
 	"strings"
 	"testing"
 
-	"agentflow/internal/gitwork"
-
 	"golang.org/x/crypto/ssh"
 )
 
-func terminalSSHTestKeys(t *testing.T) map[string]string {
+func terminalSSHTestKeys(t *testing.T) (map[string]string, []byte) {
 	t.Helper()
 	_, identity, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -33,17 +31,12 @@ func terminalSSHTestKeys(t *testing.T) map[string]string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	knownHosts := filepath.Join(t.TempDir(), "known_hosts")
-	if err := os.WriteFile(knownHosts, []byte("git.example.org "+string(ssh.MarshalAuthorizedKey(hostKey))), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv(gitwork.SSHKnownHostsEnv, knownHosts)
-	return map[string]string{"git@git.example.org:team/app.git": string(pem.EncodeToMemory(block))}
+	return map[string]string{"git@git.example.org:team/app.git": string(pem.EncodeToMemory(block))}, []byte("git.example.org " + string(ssh.MarshalAuthorizedKey(hostKey)))
 }
 
 // The requester's agent must never be reachable through the shared workspace.
 func TestTerminalGitSSHAgentStaysOutOfWorkspace(t *testing.T) {
-	keys := terminalSSHTestKeys(t)
+	keys, trust := terminalSSHTestKeys(t)
 	for _, driver := range []string{"local", "bwrap"} {
 		t.Run(driver, func(t *testing.T) {
 			workspace := t.TempDir()
@@ -52,7 +45,7 @@ func TestTerminalGitSSHAgentStaysOutOfWorkspace(t *testing.T) {
 				sb = &processSandbox{workspace: workspace, driver: "bwrap"}
 			}
 			command := CommandSpec{environment: map[string]string{}}
-			stop, err := BindTerminalGitSSH(sb, &command, keys)
+			stop, err := BindTerminalGitSSH(sb, &command, keys, trust)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -121,11 +114,11 @@ func TestBwrapPrivateBindsReachOnlyTheirProcess(t *testing.T) {
 // Docker and seatbelt share one filesystem view among every process of the
 // workspace, so the requester's key is not offered at all.
 func TestTerminalGitSSHWithoutPrivateFilesystemOffersNoKey(t *testing.T) {
-	keys := terminalSSHTestKeys(t)
+	keys, trust := terminalSSHTestKeys(t)
 	for _, sb := range []Sandbox{&dockerSandbox{workspace: t.TempDir()}, &processSandbox{workspace: t.TempDir(), driver: "seatbelt"}} {
 		before, _ := filepath.Glob("/tmp/lf-term-ssh-*")
 		command := CommandSpec{environment: map[string]string{}}
-		stop, err := BindTerminalGitSSH(sb, &command, keys)
+		stop, err := BindTerminalGitSSH(sb, &command, keys, trust)
 		if err != nil {
 			t.Fatal(err)
 		}

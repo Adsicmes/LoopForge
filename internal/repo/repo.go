@@ -175,6 +175,7 @@ type Store struct {
 	*TasksRepo
 	*UsersRepo
 	*SettingsRepo
+	*SSHHostsRepo
 	*TokensRepo
 	*AssistantRepo
 	*RunsRepo
@@ -201,6 +202,7 @@ func newStore(db *gorm.DB) *Store {
 	s.BusinessDomainsRepo = &BusinessDomainsRepo{deps: d}
 	s.UsersRepo = &UsersRepo{deps: d}
 	s.SettingsRepo = &SettingsRepo{deps: d}
+	s.SSHHostsRepo = &SSHHostsRepo{deps: d}
 	s.BotInteractionsRepo = &BotInteractionsRepo{deps: d}
 	s.TokensRepo = &TokensRepo{deps: d}
 	s.AssistantRepo = &AssistantRepo{deps: d, users: s.UsersRepo}

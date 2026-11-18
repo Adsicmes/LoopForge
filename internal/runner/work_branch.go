@@ -54,6 +54,7 @@ func syncTaskWorkBranches(ctx context.Context, workspace string, inv *domain.Run
 		return heads, nil
 	}
 	ctx = gitwork.WithSSHKeys(ctx, inv.GitSSHKeys)
+	ctx = gitwork.WithSSHTrust(ctx, inv.GitSSHTrust)
 	if strings.TrimSpace(message) == "" {
 		message = "agentflow: " + inv.NodeID + " (" + inv.RunID + ")"
 	}

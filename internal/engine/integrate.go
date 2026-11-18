@@ -68,6 +68,7 @@ func (e *Engine) integrateScheduledRun(id string) (bool, error) {
 	credentials := env.credentialSnapshot()
 	ctx := withGitIdentity(withGitToken(context.Background(), credentials.GitToken), credentials.GitUserName, credentials.GitUserEmail)
 	ctx = gitwork.WithSSHKeys(ctx, credentials.GitSSHKeys)
+	ctx = gitwork.WithSSHTrustError(gitwork.WithSSHTrust(ctx, credentials.GitSSHTrust), credentials.GitSSHTrustError)
 	runner, onRunner, err := e.integrationRunner(r)
 	if err != nil {
 		return false, err

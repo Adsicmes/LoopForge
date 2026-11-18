@@ -1384,6 +1384,7 @@ const PLATFORM_TABS=[
   {id:'admins',zh:'平台管理员',en:'Admins'},
   {id:'sharedKey',zh:'共享 OpenCode Key',en:'Shared OpenCode Key'},
   {id:'codexSub',zh:'Codex 订阅',en:'Codex subscription'},
+  {id:'sshHosts',zh:'SSH 可信主机',en:'SSH trusted hosts'},
 ];
 function platformTabsHTML(active){
   return `<div class="pa-tabs-wrap platform-tabs-wrap"><div class="pa-tabs platform-tabs" id="platformTabs" role="tablist" aria-label="平台管理分区">${PLATFORM_TABS.map(t=>{
@@ -1553,12 +1554,49 @@ function renderPlatformAdminPanel(){
     `)}
     ${platformTabPanel('sharedKey',tab,platformSharedKeyHTML())}
     ${platformTabPanel('codexSub',tab,platformCodexSubscriptionHTML())}
+    ${platformTabPanel('sshHosts',tab,platformSSHHostsHTML())}
   `;
   bindPlatformTabs(host);
   loadPlatformAccounts(host);
   loadPlatformSharedKey(host);
   loadPlatformCodexSubscription(host);
   loadPlatformAdmins(host);
+  loadPlatformSSHHosts(host);
+}
+
+function platformSSHHostsHTML(){
+  return `<section class="platform-admin-main-card platform-ssh-hosts" id="platformSSHHostsCard">
+    <div class="platform-admin-head"><div class="platform-admin-head-meta"><h2>SSH 可信主机</h2><p>全平台 Git SSH 使用此列表。扫描只提供候选公钥，保存前必须通过独立可信渠道核对指纹。</p></div></div>
+    <div class="platform-note">密钥删除仅影响之后获取的快照，不会终止已有连接。SSH 执行机器需要升级到新版 Runner。</div>
+    <form data-ssh-scan class="platform-admin-form"><label>主机名 <input name="host" required maxlength="253" placeholder="git.example.com"></label><label>端口 <input name="port" type="number" min="1" max="65535" value="22" required></label><button class="button ghost small" type="submit">扫描候选</button></form>
+    <p class="prop-hint">平台无法访问的主机请通过可信渠道手动获取公钥；扫描可能无法发现所有算法或密钥。</p>
+    <label>粘贴 known_hosts 条目，或只粘贴公钥并使用上面的主机和端口<textarea data-ssh-import rows="5" maxlength="1048576" spellcheck="false"></textarea></label>
+    <label>手动公钥标记 <select data-ssh-marker><option value="">普通</option><option value="revoked">已撤销</option><option value="cert-authority">证书颁发机构</option></select></label>
+    <label>从文件读取 <input type="file" data-ssh-file accept=".txt,.known_hosts,text/plain"></label>
+    <button type="button" class="button ghost small" data-ssh-preview>预览导入</button>
+    <button type="button" class="button ghost small" data-ssh-manual>预览手动公钥</button>
+    <div data-ssh-status role="status" aria-live="polite"></div><div data-ssh-candidates></div>
+    <button type="button" class="button primary small" data-ssh-save hidden>确认已核对并保存选中公钥</button>
+    <h3>已保存的公钥</h3><div class="platform-admin-list" data-ssh-list>加载中…</div>
+  </section>`;
+}
+function loadPlatformSSHHosts(host){
+  const card=host.querySelector('#platformSSHHostsCard');if(!card)return;
+  const status=card.querySelector('[data-ssh-status]'),list=card.querySelector('[data-ssh-list]'),preview=card.querySelector('[data-ssh-candidates]'),save=card.querySelector('[data-ssh-save]');
+  let candidates=[],previewRequest=0;
+  const message=value=>{status.textContent=value||''};
+  const showCandidates=items=>{
+    candidates=items.map(i=>i.candidate||null);
+    preview.innerHTML=items.map((item,i)=>item.candidate?`<label class="platform-check"><input type="checkbox" data-ssh-candidate="${i}"><span>${escapeHTML(item.candidate.host)}:${Number(item.candidate.port)} · ${escapeHTML(item.candidate.marker||'普通')} · ${escapeHTML(item.candidate.keyType)} · <code>${escapeHTML(item.candidate.fingerprint)}</code></span></label>`:`<p class="prop-hint">第 ${Number(item.line)||'?'} 行 ${escapeHTML(item.hostInput||'')}：${escapeHTML(item.error||'无法解析')}</p>`).join('');
+    save.hidden=!candidates.some(Boolean);
+  };
+  const refresh=async()=>{try{const result=await api('/api/platform/ssh-hosts');const rows=Array.isArray(result.hosts)?result.hosts:[];setPlatformTabCount(host,'sshHosts',rows.length);list.innerHTML=rows.length?rows.map(row=>`<div class="platform-admin-row"><div class="platform-admin-info"><b>${escapeHTML(row.host)}:${Number(row.port)}</b><span>${escapeHTML(row.marker||'普通')} · ${escapeHTML(row.keyType)} · <code>${escapeHTML(row.fingerprint)}</code></span></div><button class="button ghost small" data-ssh-delete="${Number(row.id)}">删除</button></div>`).join(''):'<p class="prop-hint">尚无可信主机；Git SSH 操作将被阻止。</p>';list.querySelectorAll('[data-ssh-delete]').forEach(button=>button.onclick=async()=>{if(!window.confirm('删除此公钥？新操作将不再信任它。'))return;try{await api(`/api/platform/ssh-hosts/${button.dataset.sshDelete}`,{method:'DELETE'});await refresh()}catch(e){message(e.message)}})}catch(e){list.textContent=e.message||'无法读取可信主机'}};
+  card.querySelector('[data-ssh-file]').onchange=async e=>{const file=e.target.files?.[0];if(!file)return;if(file.size>1048576){message('文件不能超过 1 MiB');return}card.querySelector('[data-ssh-import]').value=await file.text()};
+  card.querySelector('[data-ssh-preview]').onclick=async()=>{const request=++previewRequest;showCandidates([]);try{const result=await api('/api/platform/ssh-hosts/preview',{method:'POST',body:JSON.stringify({content:card.querySelector('[data-ssh-import]').value})});if(request!==previewRequest)return;showCandidates(result.items||[]);message('请逐项核对指纹，仅勾选已验证的公钥。')}catch(e){if(request===previewRequest)message(e.message)}};
+  card.querySelector('[data-ssh-manual]').onclick=async()=>{const request=++previewRequest;showCandidates([]);const form=card.querySelector('[data-ssh-scan]'),hostName=form.elements.host.value.trim(),port=Number(form.elements.port.value),key=card.querySelector('[data-ssh-import]').value.trim(),marker=card.querySelector('[data-ssh-marker]').value;if(!hostName||!Number.isInteger(port)||port<1||port>65535||!key||/[\r\n]/.test(hostName+key)){message('请填写主机、端口和单把公钥');return}try{const content=`${marker?'@'+marker+' ':''}[${hostName}]:${port} ${key}`;const result=await api('/api/platform/ssh-hosts/preview',{method:'POST',body:JSON.stringify({content})});if(request!==previewRequest)return;showCandidates(result.items||[]);message('请逐项核对指纹，仅勾选已验证的公钥。')}catch(e){if(request===previewRequest)message(e.message)}};
+  card.querySelector('[data-ssh-scan]').onsubmit=async e=>{e.preventDefault();const request=++previewRequest;showCandidates([]);const form=e.currentTarget,button=form.querySelector('button');button.disabled=true;message('正在扫描候选公钥…');try{const result=await api('/api/platform/ssh-hosts/scan',{method:'POST',body:JSON.stringify({host:form.elements.host.value,port:Number(form.elements.port.value)})});if(request!==previewRequest)return;showCandidates((result.hosts||[]).map(candidate=>({candidate})));message(result.warning)}catch(err){if(request===previewRequest)message(err.message)}finally{button.disabled=false}};
+  save.onclick=async()=>{const selected=Array.from(preview.querySelectorAll('[data-ssh-candidate]:checked'),el=>candidates[Number(el.dataset.sshCandidate)]).filter(Boolean);if(!selected.length){message('请先勾选已核对的公钥');return}if(!window.confirm('确认已通过独立可信渠道核对选中公钥的指纹？'))return;save.disabled=true;try{await api('/api/platform/ssh-hosts',{method:'POST',body:JSON.stringify({hosts:selected})});showCandidates([]);message('已保存选中公钥');await refresh()}catch(e){message(e.message)}finally{save.disabled=false}};
+  refresh();
 }
 
 // 平台管理 → 成员账号 / 平台共享 OpenCode Key.

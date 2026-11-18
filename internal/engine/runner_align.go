@@ -38,6 +38,11 @@ func (e *Engine) alignBaseline(repository domain.RepositoryContext, gitToken str
 		ctx := context.Background()
 		if ssh {
 			ctx = gitwork.WithSSHKeys(ctx, e.repo.GitSSHKeysForRemotes(userID, []string{repository.CloneURL}))
+			trust, err := e.repo.SSHHostSnapshot([]string{repository.CloneURL})
+			if err != nil {
+				return err
+			}
+			ctx = gitwork.WithSSHTrust(ctx, trust)
 		}
 		return alignIntegrateBaseline(ctx, repository, gitToken, e.repo)
 	}

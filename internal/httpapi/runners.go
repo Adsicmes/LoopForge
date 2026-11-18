@@ -851,7 +851,28 @@ func (h *runnersHandlers) runnerTaskClaim(c *gin.Context) {
 			c.JSON(http.StatusOK, map[string]bool{"taskAvailable": true})
 			return
 		}
-		if task.Invocation != nil && task.Invocation.GitSSHUserID > 0 && runner.SupportsGitSSH() && len(task.Invocation.GitSSHRemotes()) > 0 {
+		if task.Invocation != nil && len(task.Invocation.GitSSHRemotes()) > 0 {
+			if !runner.SupportsGitSSH() {
+				message := "Git SSH 需要升级 Runner 至 " + domain.RunnerVersionGitSSH
+				if err := h.repo.CompleteRunnerTask(task.ID, runner.ID, domain.RunnerTaskFailed, nil, "", message, nil, nil, time.Now().UTC()); err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "无法拒绝不兼容的任务"})
+					return
+				}
+				h.engine.NotifyRunnerTaskChanged(task.ID)
+				c.JSON(http.StatusConflict, gin.H{"error": message})
+				return
+			}
+			trust, err := h.repo.SSHHostSnapshot(task.Invocation.GitSSHRemotes())
+			if err != nil {
+				if completeErr := h.repo.CompleteRunnerTask(task.ID, runner.ID, domain.RunnerTaskFailed, nil, "", err.Error(), nil, nil, time.Now().UTC()); completeErr != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "无法拒绝缺少信任数据的任务"})
+					return
+				}
+				h.engine.NotifyRunnerTaskChanged(task.ID)
+				c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
+				return
+			}
+			task.Invocation.GitSSHTrust = trust
 			task.Invocation.GitSSHKeys = h.repo.GitSSHKeysForRemotes(task.Invocation.GitSSHUserID, task.Invocation.GitSSHRemotes())
 			task.Invocation.GitSSHUserID = 0
 			c.Header("Cache-Control", "no-store")

@@ -124,7 +124,7 @@ func (r Runner) DefaultSelectionBlocker() string {
 // it directly, without a Gongfeng MR.
 const RunnerVersionSharedPush = "0.9.0"
 
-const RunnerVersionGitSSH = "0.9.3"
+const RunnerVersionGitSSH = "0.12.0"
 
 func (r Runner) SupportsGitSSH() bool {
 	return versionAtLeast(r.RunnerVersion, RunnerVersionGitSSH)
@@ -429,6 +429,7 @@ func PublicRunnerTask(task RunnerTask) RunnerTask {
 	copyInvocation.AgentCLIModels = nil
 	copyInvocation.GitSSHUserID = 0
 	copyInvocation.GitSSHKeys = nil
+	copyInvocation.GitSSHTrust = nil
 	if copyInvocation.Repository != nil {
 		copyRepository := publicRunnerRepository(*copyInvocation.Repository)
 		copyInvocation.Repository = &copyRepository
@@ -517,7 +518,8 @@ type RunnerInvocation struct {
 	// Only the user reference is stored in the queue. GitSSHKeys is filled on
 	// authenticated claim or on the outbound workspace control connection.
 	GitSSHUserID int64             `json:"gitSshUserId,omitempty"`
-	GitSSHKeys   map[string]string `json:"gitSshKeys,omitempty"` // clone URL to private key
+	GitSSHKeys   map[string]string `json:"gitSshKeys,omitempty"`  // clone URL to private key
+	GitSSHTrust  []byte            `json:"gitSshTrust,omitempty"` // request-scoped known_hosts snapshot
 	// Repositories lists every repository the run touches (multi-repository
 	// support). Each entry checks out into its Dir under the task workspace.
 	Repositories []RunnerRepository `json:"repositories,omitempty"`

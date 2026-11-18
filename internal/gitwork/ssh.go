@@ -19,8 +19,6 @@ import (
 	"golang.org/x/crypto/ssh/knownhosts"
 )
 
-const SSHKnownHostsEnv = "AGENTFLOW_GIT_SSH_KNOWN_HOSTS"
-
 const SSHKeyHint = "请到「个人配置 → Git SSH 密钥」为该 SSH 主机添加私钥，并在代码托管平台为对应公钥授予仓库权限"
 
 var ErrSSHKeyRequired = errors.New("未配置 Git SSH 密钥。" + SSHKeyHint)
@@ -53,15 +51,7 @@ func parseSSHIdentity(value string) (any, ssh.Signer, error) {
 	return nil, nil, errors.New("Git SSH 私钥格式无效，请粘贴完整的 OpenSSH 或 PEM 私钥")
 }
 
-func sshHostKeys(remotes []SSHRemote) ([]byte, error) {
-	path := strings.TrimSpace(os.Getenv(SSHKnownHostsEnv))
-	if path == "" {
-		return nil, fmt.Errorf("Git SSH 尚未启用，请管理员配置 %s", SSHKnownHostsEnv)
-	}
-	content, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("无法读取 %s 指定的主机密钥文件", SSHKnownHostsEnv)
-	}
+func sshHostKeys(remotes []SSHRemote, content []byte) ([]byte, error) {
 	allowed := make(map[string]bool, len(remotes))
 	for _, remote := range remotes {
 		allowed[knownhosts.Normalize(net.JoinHostPort(remote.Host, remote.Port))] = false
@@ -88,7 +78,7 @@ func sshHostKeys(remotes []SSHRemote) ([]byte, error) {
 	}
 	for _, remote := range remotes {
 		if endpoint := knownhosts.Normalize(net.JoinHostPort(remote.Host, remote.Port)); !allowed[endpoint] {
-			return nil, fmt.Errorf("SSH 主机 %s 未获信任，请管理员在 %s 中添加并核对该主机和端口的公钥", endpoint, SSHKnownHostsEnv)
+			return nil, fmt.Errorf("SSH 主机 %s 未获信任，请平台管理员核对并添加该主机和端口的公钥", endpoint)
 		}
 	}
 	return pinned.Bytes(), nil
@@ -140,7 +130,7 @@ func bindSSHRemotes(environment map[string]string, keys map[string]string) ([]ss
 // Aliases bind each repository to its selected host key.
 // The filesystem contains a socket and public data only. clientRoot is the
 // mount path corresponding to root for a client in a container.
-func StartSSH(environment map[string]string, keys map[string]string, root, clientRoot string) (func(), error) {
+func StartSSH(environment map[string]string, keys map[string]string, root, clientRoot string, trust ...[]byte) (func(), error) {
 	if len(keys) == 0 {
 		return func() {}, nil
 	}
@@ -154,7 +144,11 @@ func StartSSH(environment map[string]string, keys map[string]string, root, clien
 		environment["GIT_SSH_COMMAND"] = `sh -c 'echo "未配置 Git SSH 密钥，请在个人配置中添加" >&2; exit 1' --`
 		return func() {}, nil
 	}
-	pinned, err := sshHostKeys(remotes)
+	var snapshot []byte
+	if len(trust) > 0 {
+		snapshot = trust[0]
+	}
+	pinned, err := sshHostKeys(remotes, snapshot)
 	if err != nil {
 		return nil, err
 	}
@@ -288,6 +282,22 @@ func serveSSHAgent(listener net.Listener, keyring agent.Agent) func() {
 
 type sshKeysContext struct{}
 type sshRemoteContext struct{}
+type sshTrustContext struct{}
+type sshTrustErrorContext struct{}
+
+// WithSSHTrust binds an immutable, request-scoped known_hosts snapshot.
+func WithSSHTrust(ctx context.Context, snapshot []byte) context.Context {
+	return context.WithValue(ctx, sshTrustContext{}, bytes.Clone(snapshot))
+}
+
+func SSHTrust(ctx context.Context) []byte {
+	snapshot, _ := ctx.Value(sshTrustContext{}).([]byte)
+	return bytes.Clone(snapshot)
+}
+
+func WithSSHTrustError(ctx context.Context, message string) context.Context {
+	return context.WithValue(ctx, sshTrustErrorContext{}, message)
+}
 
 func WithSSHKeys(ctx context.Context, keys map[string]string) context.Context {
 	return context.WithValue(ctx, sshKeysContext{}, keys)
@@ -313,12 +323,15 @@ func sshCommandEnvironment(ctx context.Context, args []string) (map[string]strin
 	if len(args) > 0 {
 		switch args[0] {
 		case "clone", "fetch", "pull", "push", "ls-remote":
+			if message, _ := ctx.Value(sshTrustErrorContext{}).(string); message != "" {
+				return nil, nil, errors.New(message)
+			}
 			keys, _ := ctx.Value(sshKeysContext{}).(map[string]string)
 			if keys[remote] == "" {
 				return nil, nil, fmt.Errorf("%s: %w", remote, ErrSSHKeyRequired)
 			}
 			env := make(map[string]string)
-			cleanup, err := StartSSH(env, map[string]string{remote: keys[remote]}, "", "")
+			cleanup, err := StartSSH(env, map[string]string{remote: keys[remote]}, "", "", SSHTrust(ctx))
 			return env, cleanup, err
 		}
 	}
