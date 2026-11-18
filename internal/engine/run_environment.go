@@ -257,7 +257,7 @@ func (e *Engine) resolveRunCredentials(run domain.Run) runtime.RunCredentials {
 			}
 		}
 	}
-	scriptAssets, _, _ := runtime.PrepareMCPServers(e.resolveScriptMCPAssets(run.ExecutionContext.ProjectID, userID), runtime.MCPTarget{GitToken: credentials.GitToken})
+	scriptAssets, _, _ := runtime.PrepareMCPServers(e.resolveScriptMCPAssets(run.ExecutionContext.ProjectID, userID), runtime.MCPTarget{GitToken: credentials.GitToken, ExtraCredentials: credentials.Extra})
 	credentials.MCPServers = scriptAssets.MCPServers
 	return credentials
 }
