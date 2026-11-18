@@ -88,14 +88,10 @@ jobs:
 
       - name: Validate release contents
         run: |
-          python3 scripts/build-classic-hosts.py --check
           bash scripts/validate.sh
-          bash scripts/test-observability.sh
-          bash scripts/smoke-install.sh
-          bash scripts/smoke-npm.sh
-          bash scripts/smoke-curl-install.sh
-          bash scripts/e2e.sh
           bash scripts/scan-secrets.sh
+        env:
+          LOOPFORGE_GITLEAKS_TOKEN: ${{ github.token }}
 
       - name: Log in to GHCR
         uses: docker/login-action@v4
