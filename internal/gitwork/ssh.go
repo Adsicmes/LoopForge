@@ -9,7 +9,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -56,48 +55,56 @@ func parseSSHIdentity(value string) (any, ssh.Signer, error) {
 // fingerprints SHA256:+DiY3wvvV6TuJJhbpZisF/zLDA0zPMSvHdkr4UvCOqU ed25519,
 // p2QAMXNIC1TJYWeIOttrVc98/R1BUFWu3/LiyKgUfQM ecdsa, uNiVztksCsDhcc0u9e8BujQXVUpKZIDTMczCvj3tD2s rsa),
 // for github.com:22 and the ssh.github.com:443 fallback. Other hosts still
-// need an administrator-trusted entry; an @revoked snapshot entry overrides
-// these pins (see sshHostKeys).
+// need an administrator-trusted entry; a snapshot that mentions a host
+// overrides these pins for that host (see sshHostKeys).
 const builtinKnownHosts = `github.com,[ssh.github.com]:443 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl
 github.com,[ssh.github.com]:443 ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBEmKSENjQEezOmxkZMy7opKgwFB9nkt5YRrYMjNuG5N87uRgg6CLrbo5wAdT/y6v0mKV0U2w0WZ2YB/++Tpockg=
 github.com,[ssh.github.com]:443 ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt+VTTvDP6mHBL9j1aNUkY4Ue1gvwnGLVlOhGeYrnZaMgRK6+PKCUXaDbC7qtbW8gIkhL7aGCsOr/C56SJMy/BCZfxd1nWzAOxSDPgVsmerOBYfNqltV9/hWCqBywINIR+5dIg6JTJ72pcEpEjcYgXkE2YEFXV1JHnsKgbLWNlhScqb2UmyRkQyytRLtL+38TGxkxCflmO+5Z8CSSNY7GidjMIZ7Q4zMjA2n1nGrlTDkzwDCsw+wqFPGQA179cnfGWOWRVruj16z6XyvxvjJwbz0wQZ75XK5tKSb7FNyeIEs4TT4jk+S4dhPeAUC5y+bDYirYgM4GC7uEnztnZyaVWQ7B381AK4Qdrwt51ZqExKbQpTUNn+EjqoTwvqNj4kqx5QUCI0ThS/YkOxJCXmPUWZbhjpCg56i+2aB6CmK2JGhn57K5mj0MNdBXA4/WnwH6XoPWJzK5Nyu2zB3nAZp+S5hpQs+p1vN1/wsjk=
 `
 
 func sshHostKeys(remotes []SSHRemote, content []byte) ([]byte, error) {
-	// The administrator snapshot comes first so an @revoked line there still
-	// applies: the first entry for one host key decides, and builtin pins
-	// (upstream 48cdf0c, A2) never re-trust a key the snapshot revoked.
-	merged := bytes.Clone(content)
-	merged = append(merged, '\n')
-	merged = append(merged, builtinKnownHosts...)
+	// The administrator snapshot decides every host it mentions: its lines
+	// are pinned verbatim, and the builtin pins (upstream 48cdf0c, A2) only
+	// cover hosts the snapshot does not mention, so a snapshot @revoked
+	// entry keeps its host untrusted even when it names just one key.
 	allowed := make(map[string]bool, len(remotes))
 	for _, remote := range remotes {
 		allowed[knownhosts.Normalize(net.JoinHostPort(remote.Host, remote.Port))] = false
 	}
 	var pinned bytes.Buffer
 	decided := map[string]bool{}
-	for _, line := range bytes.Split(merged, []byte("\n")) {
+	for _, line := range bytes.Split(content, []byte("\n")) {
 		marker, hosts, key, _, _, err := ssh.ParseKnownHosts(line)
 		if err != nil || (marker != "" && marker != "revoked" && marker != "cert-authority") {
 			continue
 		}
-		identity := string(ssh.MarshalAuthorizedKey(key))
 		for _, host := range hosts {
 			host = strings.ToLower(host)
 			if _, ok := allowed[host]; !ok {
 				continue
 			}
-			if decided[host+"\x00"+identity] {
-				continue
-			}
-			decided[host+"\x00"+identity] = true
+			decided[host] = true
 			if marker != "" {
 				fmt.Fprintf(&pinned, "@%s ", marker)
 			}
-			fmt.Fprintf(&pinned, "%s %s", host, identity)
+			fmt.Fprintf(&pinned, "%s %s", host, ssh.MarshalAuthorizedKey(key))
 			if marker != "revoked" {
 				allowed[host] = true
 			}
+		}
+	}
+	for _, line := range bytes.Split([]byte(builtinKnownHosts), []byte("\n")) {
+		marker, hosts, key, _, _, err := ssh.ParseKnownHosts(line)
+		if err != nil || (marker != "" && marker != "revoked" && marker != "cert-authority") {
+			continue
+		}
+		for _, host := range hosts {
+			host = strings.ToLower(host)
+			if _, ok := allowed[host]; !ok || decided[host] {
+				continue
+			}
+			fmt.Fprintf(&pinned, "%s %s", host, ssh.MarshalAuthorizedKey(key))
+			allowed[host] = true
 		}
 	}
 	for _, remote := range remotes {
@@ -109,11 +116,15 @@ func sshHostKeys(remotes []SSHRemote, content []byte) ([]byte, error) {
 }
 
 // BuiltinKnownHostsFor returns the builtin known_hosts lines covering the
-// given normalized endpoints, plus which of them got at least one line, so a
-// snapshot generator can trust GitHub's published keys without an
-// administrator entry.
+// given endpoints ("host:port" or pre-normalized), plus which of them got at
+// least one line keyed by the original input, so a snapshot generator can
+// trust GitHub's published keys without an administrator entry.
 func BuiltinKnownHostsFor(endpoints []string) ([]byte, map[string]bool) {
 	covered := map[string]bool{}
+	normalized := make(map[string]string, len(endpoints))
+	for _, endpoint := range endpoints {
+		normalized[strings.ToLower(knownhosts.Normalize(endpoint))] = endpoint
+	}
 	var out bytes.Buffer
 	for _, line := range bytes.Split([]byte(builtinKnownHosts), []byte("\n")) {
 		marker, hosts, key, _, _, err := ssh.ParseKnownHosts(line)
@@ -121,10 +132,12 @@ func BuiltinKnownHostsFor(endpoints []string) ([]byte, map[string]bool) {
 			continue
 		}
 		for _, host := range hosts {
-			if !slices.Contains(endpoints, host) {
+			host = strings.ToLower(host)
+			raw, ok := normalized[host]
+			if !ok {
 				continue
 			}
-			covered[host] = true
+			covered[raw] = true
 			if marker != "" {
 				fmt.Fprintf(&out, "@%s ", marker)
 			}
@@ -197,7 +210,7 @@ func StartSSH(environment map[string]string, keys map[string]string, root, clien
 	if err != nil {
 		return nil, err
 	}
-	return startSSHSession(environment, bindings, remotes, root, clientRoot)
+	return startSSHSession(environment, bindings, remotes, root, clientRoot, trust...)
 }
 
 // StartSSHHosts gives every SSH remote on the given hosts the matching key,

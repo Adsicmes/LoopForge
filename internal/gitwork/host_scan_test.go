@@ -128,8 +128,9 @@ func TestSSHHostKeysTrustsBuiltinGitHub(t *testing.T) {
 		t.Fatal(err)
 	}
 	revoked := "@revoked " + knownhostsLine("github.com", githubKey) + "\n"
-	// The first entry for one host key decides: a revoked snapshot entry keeps
-	// that key revoked even though the builtin pins repeat it.
+	// The snapshot decides every host it mentions: a revoked snapshot entry
+	// keeps github.com untrusted even though the builtin pins repeat keys
+	// for it.
 	if _, err := sshHostKeys(githubRemote, []byte(revoked)); err == nil || !strings.Contains(err.Error(), "未获信任") {
 		t.Fatalf("revoked builtin key: err=%v", err)
 	}
