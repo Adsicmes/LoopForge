@@ -212,11 +212,106 @@ func (h *agentToolGateway) approveNativeTool(ctx context.Context, s *AgentToolSe
 		}
 		return deny("平台模式禁用原生命令和写入工具（" + action.Name + "），请先打开工作区")
 	}
-	// The execution mode controls platform/external writes. Native development
-	// runs inside the bound Docker workspace in every approval mode; keep this
-	// hook as the live-turn and platform-mode fence, without human or AI review.
-	return nativeToolApprovalResult{Allow: true}
+	// Files and commands inside the sandbox run in every approval mode. Only
+	// commands that write to outside systems follow the approval mode.
+	label, external := nativeExternalWrite(action.Input)
+	if !external {
+		return nativeToolApprovalResult{Allow: true}
+	}
+	var compact bytes.Buffer
+	if json.Compact(&compact, action.Input) != nil {
+		return deny("原生工具审批参数无效")
+	}
+	action.Input = compact.Bytes()
+	generation := ""
+	if s.ctx != nil {
+		generation = assistantControlScopeFrom(s.ctx).GenerationID
+	}
+	phase := nativeApprovalPhase(s.Token)
+	id := nativeApprovalPhase(s.Token + "/" + action.ID)
+	// Resolve an existing exact invocation before considering the policy again.
+	// A declined request must not turn into a new permit on the next poll.
+	if h.repo != nil && action.ID != "" {
+		if old, ok := h.repo.NativeApproval(s.ChatOwnerID, s.ChatSessionID, id); ok {
+			if old.GenerationID != generation || old.ActorID != s.UserID || old.Tool != action.Name || old.InputDigest != nativeApprovalPhase(string(action.Input)) {
+				return deny("审批调用标识已被其他操作使用")
+			}
+			switch old.Decision {
+			case "allow":
+				return nativeToolApprovalResult{Allow: true}
+			case "deny":
+				return deny("用户拒绝了本次外部写入，不要换一种方式重试；先问用户怎么处理")
+			}
+			if time.Since(old.CreatedAt) > nativeApprovalWait {
+				_ = h.repo.DecideNativeApproval(s.ChatOwnerID, old.ActorID, s.ChatSessionID, old.ID, "deny")
+				return deny("等待用户批准超时，操作未执行；告诉用户需要批准什么，等用户回复后再试")
+			}
+			return nativeToolApprovalResult{Pending: true}
+		}
+	}
+	if s.ExecMode.AutoWrite && !s.ExecMode.ReviewWrites {
+		return nativeToolApprovalResult{Allow: true}
+	}
+	if s.ExecMode.ReviewWrites {
+		// Assisted mode decides with the reviewer alone: allow or deny, never
+		// a card for the speaker. The review outlives one hook request (20s),
+		// so it runs in the background and the hook polls for the verdict.
+		if action.ID == "" {
+			return deny("缺少审批调用标识")
+		}
+		review, done, ok := s.nativeReview(ctx, nativeReviewPoll, id, nativeApprovalPhase(string(action.Input)), func(reviewCtx context.Context) assistantApprovalReview {
+			args := map[string]any{"tool": action.Name, "input": action.Input, "runId": s.workspaceRun()}
+			return reviewAssistantAction(withAssistantApprovalReviewer(reviewCtx, s.approvalReviewer), "native_"+action.Name, "工作区命令（"+label+"），会写入沙箱外的系统", args)
+		})
+		switch {
+		case !ok:
+			return deny("审批调用标识已被其他操作使用")
+		case !done:
+			return nativeToolApprovalResult{Pending: true}
+		case review.allows():
+			if !h.nativeToolTurnActive(ctx, s) {
+				return deny("本轮已结束，审批已失效")
+			}
+			return nativeToolApprovalResult{Allow: true, Reason: review.Rationale}
+		default:
+			return deny(nativeReviewRefusal(review))
+		}
+	}
+	// Ask the speaker; the hook polls until they decide or the turn ends.
+	if h.repo == nil || s.ChatSessionID == "" || s.ChatOwnerID == 0 || generation == "" || action.ID == "" {
+		return deny("缺少审批上下文或调用标识")
+	}
+	item := domain.AssistantNativeApproval{ID: id, GenerationID: generation, ActorID: s.UserID, Tool: action.Name, Summary: label, Input: action.Input}
+	if err := h.repo.CreateNativeApproval(s.ChatOwnerID, s.ChatSessionID, phase, item); err != nil {
+		return deny("无法保存审批请求")
+	}
+	if !h.nativeToolTurnActive(ctx, s) {
+		_ = h.repo.ReleaseNativeApprovals(s.ChatOwnerID, s.ChatSessionID, generation, phase)
+		return deny("本阶段已结束，审批已失效")
+	}
+	if s.Notify != nil {
+		s.Notify("native_approval", map[string]string{"id": item.ID})
+	}
+	return nativeToolApprovalResult{Pending: true}
 }
+
+// nativeReviewRefusal tells the agent why assisted mode declined a command.
+// The reviewer's own texts for an unavailable review still mention a manual
+// confirmation used by platform drafts; native commands have none.
+func nativeReviewRefusal(review assistantApprovalReview) string {
+	if review.Outcome != "allow" && review.Outcome != "deny" {
+		return "帮我批准：自动审查暂不可用，已拒绝本次外部写入，操作未执行；告诉用户需要执行什么，不要换一种方式重试"
+	}
+	reason := strings.TrimSpace(review.Rationale)
+	if reason == "" {
+		reason = "审查未通过"
+	}
+	return "帮我批准：审查拒绝了本次外部写入（" + reason + "），操作未执行；不要换一种方式重试，先告诉用户原因"
+}
+
+// nativeReviewPoll is how long one hook request waits for the verdict before
+// answering pending, below the hook's 20-second request timeout.
+const nativeReviewPoll = 10 * time.Second
 
 // Native hooks see the CLI's local MCP name, not necessarily the wire name.
 // Permit only the session gateway's aliases/wrappers here; tools/call still

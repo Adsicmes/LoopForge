@@ -5,6 +5,7 @@ Platform releases use `vX.Y.Z` tags and publish this fork's image as `ghcr.io/ad
 ## Unreleased
 
 - **github.com 内置 SSH 主机信任**：平台直接信任 GitHub 官方公布的 `github.com:22` 与 `ssh.github.com:443` 主机公钥，无需管理员添加条目；管理员快照中的 `@revoked` 条目仍可否决内置 pin（采用上游 48cdf0c 行为 A2）。
+- **原生命令外部写审批**：写入沙箱外系统的原生命令（推送、发 PR、发布包等）按对话审批模式执行，「帮我批准」由独立模型审查，「请求批准」等发言人批准（移植上游 eb2b8e8）。
 
 ## 0.3.10-rc.3 — Platform-mode Code Mode repair (prerelease)
 

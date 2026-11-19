@@ -247,4 +247,5 @@ type AssistantNativeApproval struct {
 	Input        json.RawMessage `json:"input"`
 	InputDigest  string          `json:"-"`
 	Decision     string          `json:"decision"`
+	CreatedAt    time.Time       `json:"createdAt"`
 }
