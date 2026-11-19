@@ -21,6 +21,10 @@ jobs:
         run: npm --prefix chatbot ci --include=dev --no-audit --no-fund && npm --prefix chatbot run build
       - run: go build ./...
       - run: go vet ./...
+      - name: Go tests (skip real-browser tests)
+        run: go test -p=2 ./... -count=1 -timeout=600s -skip "$REAL_BROWSER_TESTS"
+        env:
+          REAL_BROWSER_TESTS: '^(TestMainBotBrowserStartsAndDrivesRunBrowser|TestBrowserStreamPushesFramesAndRunsCommands|TestRunnerStartsPanelBrowserInRunSandbox|TestBrowserAgentOperationsDriveRealChromium|TestBrowserScrollEndsOnASharpFrame)$'
       - run: python3 scripts/collect-go-notices.py
       - run: python3 scripts/check-public.py
       - run: bash scripts/scan-secrets.sh
