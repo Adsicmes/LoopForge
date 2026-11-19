@@ -181,4 +181,8 @@ func TestSSHHostSnapshotBuiltinGitHub(t *testing.T) {
 	if err != nil || !strings.Contains(string(trust), "@revoked github.com ssh-ed25519 ") || strings.Count(string(trust), "github.com ssh-ed25519 ") != 1 {
 		t.Fatalf("revoked builtin ed25519 key: trust=%q err=%v", trust, err)
 	}
+	trust, err = s.SSHHostSnapshot([]string{"git@github.com:org/repo.git", "ssh://git@ssh.github.com:443/org/repo.git"})
+	if err != nil || !strings.Contains(string(trust), "[ssh.github.com]:443 ssh-ed25519 ") {
+		t.Fatalf("revocation must not affect another endpoint: trust=%q err=%v", trust, err)
+	}
 }
