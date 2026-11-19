@@ -11,8 +11,8 @@ import (
 	"testing"
 
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/knownhosts"
 )
-
 func TestScanAddressPolicy(t *testing.T) {
 	for _, tc := range []struct {
 		address string
@@ -105,4 +105,70 @@ func TestScanValidatesDNSAndDialsOnlyResolvedIP(t *testing.T) {
 	if !called {
 		t.Fatal("no dial attempted")
 	}
+}
+
+// github.com is trusted by the builtin pins without administrator entries,
+// an @revoked snapshot entry overrides the builtin key, and other hosts
+// still fail closed (upstream 48cdf0c behavior, A2).
+func TestSSHHostKeysTrustsBuiltinGitHub(t *testing.T) {
+	_, private, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signer, err := ssh.NewSignerFromKey(private)
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherPins := knownhostsLine("git.example:2222", signer.PublicKey()) + "\n"
+	githubRemote := []SSHRemote{{Host: "github.com", Port: "22", Path: "/org/repo.git", User: "git", URL: "git@github.com:org/repo.git"}}
+	githubFallback := []SSHRemote{{Host: "ssh.github.com", Port: "443", Path: "/org/repo.git", User: "git", URL: "ssh://git@ssh.github.com:443/org/repo.git"}}
+	otherRemote := []SSHRemote{{Host: "git.example", Port: "2222", Path: "/team/app.git", User: "git", URL: "git@git.example:team/app.git"}}
+	_, _, githubKey, _, _, err := ssh.ParseKnownHosts([]byte(builtinKnownHosts))
+	if err != nil {
+		t.Fatal(err)
+	}
+	revoked := "@revoked " + knownhostsLine("github.com", githubKey) + "\n"
+	// The first entry for one host key decides: a revoked snapshot entry keeps
+	// that key revoked even though the builtin pins repeat it.
+	if _, err := sshHostKeys(githubRemote, []byte(revoked)); err == nil || !strings.Contains(err.Error(), "未获信任") {
+		t.Fatalf("revoked builtin key: err=%v", err)
+	}
+	for _, tc := range []struct {
+		name    string
+		remotes []SSHRemote
+		content string
+		wantErr string
+	}{
+		{"github trusted without entries", githubRemote, "", ""},
+		{"ssh.github.com fallback trusted", githubFallback, "", ""},
+		{"other host still untrusted", otherRemote, "", "未获信任"},
+		{"other host trusted by snapshot", otherRemote, otherPins, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := sshHostKeys(tc.remotes, []byte(tc.content))
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatalf("%s: unexpected error %v", tc.name, err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("%s: err = %v, want %q", tc.name, err, tc.wantErr)
+			}
+		})
+	}
+	pinned, err := sshHostKeys(githubRemote, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(pinned), "github.com ssh-ed25519") {
+		t.Fatalf("builtin pins must reach the generated known_hosts: %q", pinned)
+	}
+	if got, covered := BuiltinKnownHostsFor([]string{"github.com:22", "git.example:22"}); !covered["github.com:22"] || covered["git.example:22"] || !strings.Contains(string(got), "github.com") {
+		t.Fatalf("builtin endpoint coverage = %q %v", got, covered)
+	}
+}
+
+func knownhostsLine(host string, key ssh.PublicKey) string {
+	return strings.TrimSpace(knownhosts.Line([]string{host}, key))
 }

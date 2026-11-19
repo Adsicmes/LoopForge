@@ -2,6 +2,10 @@
 
 Platform releases use `vX.Y.Z` tags and publish this fork's image as `ghcr.io/adsicmes/loopforge`. LoopForge Local packages use `local-vX.Y.Z` tags and are published by manually running the `release-local` workflow.
 
+## Unreleased
+
+- **github.com 内置 SSH 主机信任**：平台直接信任 GitHub 官方公布的 `github.com:22` 与 `ssh.github.com:443` 主机公钥，无需管理员添加条目；管理员快照中的 `@revoked` 条目仍可否决内置 pin（采用上游 48cdf0c 行为 A2）。
+
 ## 0.3.10-rc.3 — Platform-mode Code Mode repair (prerelease)
 
 This is a prerelease for testing the platform-mode repair. The `latest` and `0.3` image tags stay on 0.3.8; install it with `git clone --branch v0.3.10-rc.3`.

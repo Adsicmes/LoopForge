@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"net"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -72,6 +73,9 @@ func (r *SSHHostsRepo) DeleteSSHHost(id uint64) error {
 }
 
 // SSHHostSnapshot selects only exact endpoints and fails closed on read errors.
+// Endpoints trusted by the builtin pins (github.com, upstream 48cdf0c A2) get
+// their builtin lines without an administrator entry; an @revoked snapshot
+// entry still overrides the builtin key (sshHostKeys decides first-wins).
 func (r *SSHHostsRepo) SSHHostSnapshot(remotes []string) ([]byte, error) {
 	allowed := make(map[string]bool)
 	for _, raw := range remotes {
@@ -102,9 +106,21 @@ func (r *SSHHostsRepo) SSHHostSnapshot(remotes []string) ([]byte, error) {
 			allowed[endpoint] = true
 		}
 	}
+	endpoints := make([]string, 0, len(allowed))
 	for endpoint, ok := range allowed {
-		if !ok {
-			return nil, fmt.Errorf("SSH 主机 %s 未获信任，请平台管理员核对并添加公钥", endpoint)
+		if ok {
+			continue
+		}
+		endpoints = append(endpoints, knownhosts.Normalize(endpoint))
+	}
+	if len(endpoints) > 0 {
+		sort.Strings(endpoints)
+		lines, covered := gitwork.BuiltinKnownHostsFor(endpoints)
+		out.Write(lines)
+		for _, endpoint := range endpoints {
+			if !covered[endpoint] {
+				return nil, fmt.Errorf("SSH 主机 %s 未获信任，请平台管理员核对并添加公钥", endpoint)
+			}
 		}
 	}
 	return []byte(out.String()), nil
