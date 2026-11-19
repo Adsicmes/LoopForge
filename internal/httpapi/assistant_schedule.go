@@ -107,20 +107,20 @@ func (h *assistantHandlers) scheduleJobAssistantUser(job domain.ScheduleJob, mod
 // scheduleJobRunAsUser runs a bound job as that member while they can still
 // write to the project.
 func (h *assistantHandlers) scheduleJobRunAsUser(job domain.ScheduleJob, engine string) (domain.User, []string, error) {
-	name := firstNonEmpty(job.RunAsName, fmt.Sprintf("鐢ㄦ埛 %d", job.RunAsUserID))
+	name := firstNonEmpty(job.RunAsName, fmt.Sprintf("用户 %d", job.RunAsUserID))
 	user, ok := h.repo.User(job.RunAsUserID)
 	if !ok {
-		return domain.User{}, nil, fmt.Errorf("浠诲姟淇濆瓨浜?%s 鐨勮处鍙峰凡涓嶅瓨鍦細璇风紪杈戝苟淇濆瓨涓€娆′换鍔★紝鏀圭敤浣犵殑 Key", name)
+		return domain.User{}, nil, fmt.Errorf("任务保存人 %s 的账号已不存在：请编辑并保存一次任务，改用你的 Key", name)
 	}
 	if !scheduleProjectWriter(h.repo, job.ProjectID, user) {
-		return domain.User{}, nil, fmt.Errorf("%s 宸蹭笉鏄椤圭洰鐨勫彲鍐欐垚鍛橈紝涓嶈兘鍐嶇敤鍏?Key 鎵ц锛氳缂栬緫骞朵繚瀛樹竴娆′换鍔★紝鏀圭敤浣犵殑 Key", name)
+		return domain.User{}, nil, fmt.Errorf("%s 已不是该项目的可写成员，不能再用其 Key 执行：请编辑并保存一次任务，改用你的 Key", name)
 	}
 	runUser, shared, ok := scheduleKeyUser(asScheduleKeyStore(h.repo), user, engine)
 	if !ok {
 		if engine != assistantEngineCodeBuddy {
-			return domain.User{}, nil, fmt.Errorf("鎵ц鎻愮ず璇嶉渶瑕?%s 鐨?%s API Key锛氳鍦ㄨ璐﹀彿鐨勪釜浜洪厤缃腑閰嶇疆", name, assistantEngineLabel(engine))
+			return domain.User{}, nil, fmt.Errorf("执行提示词需要 %s 的 %s API Key：请在该账号的个人配置中配置", name, assistantEngineLabel(engine))
 		}
-		return domain.User{}, nil, fmt.Errorf("鎵ц鎻愮ず璇嶉渶瑕?%s 鐨?CodeBuddy API Key锛屽钩鍙颁篃娌℃湁閰嶇疆鍏变韩 Key锛氳鍦ㄨ璐﹀彿鐨勪釜浜洪厤缃腑閰嶇疆锛屾垨鑱旂郴骞冲彴绠＄悊鍛橀厤缃叡浜?Key", name)
+		return domain.User{}, nil, fmt.Errorf("执行提示词需要 %s 的 CodeBuddy API Key，平台也没有配置共享 Key：请在该账号的个人配置中配置，或联系平台管理员配置共享 Key", name)
 	}
 	return runUser, shared, nil
 }
