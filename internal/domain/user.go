@@ -29,7 +29,7 @@ type User struct {
 	DeptName            string                        `json:"deptName"`
 	// PlatformRole is a platform-wide role, independent of project membership.
 	// "admin" may edit generic SOP templates; empty is a regular user.
-	PlatformRole                 string   `json:"platformRole,omitempty"`
+	PlatformRole string `json:"platformRole,omitempty"`
 	// GitTokens holds one repository token per hosting platform (github,
 	// gongfeng, codeup). GitToken is the pre-multi-provider single slot: reads
 	// fall back to it and writes mirror the github entry into it, so an older
@@ -40,15 +40,16 @@ type User struct {
 	GitTokenOAuth      bool              `json:"gitTokenOAuth,omitempty"`
 	// GitTokenProviders lists the platforms that hold a token, so the settings
 	// panel can show one row per platform.
-	GitTokenProviders            []string  `json:"gitTokenProviders,omitempty"`
-	GitSSHKeyConfigured          bool      `json:"gitSshKeyConfigured,omitempty"`
-	GongfengRefreshToken         string    `json:"-"`
-	GongfengTokenExpiresAt       time.Time `json:"-"`
-	CodeBuddyAPIKey              string    `json:"codeBuddyApiKey,omitempty"`
-	CodeBuddyAPIKeyConfigured    bool      `json:"codeBuddyApiKeyConfigured,omitempty"`
-	CodeBuddyInternetEnvironment string    `json:"codeBuddyInternetEnvironment,omitempty"`
-	CreatedAt                    time.Time `json:"createdAt"`
-	UpdatedAt                    time.Time `json:"updatedAt"`
+	GitTokenProviders            []string   `json:"gitTokenProviders,omitempty"`
+	GitSSHKeyConfigured          bool       `json:"gitSshKeyConfigured,omitempty"`
+	GongfengRefreshToken         string     `json:"-"`
+	GongfengTokenExpiresAt       time.Time  `json:"-"`
+	CodeBuddyAPIKey              string     `json:"codeBuddyApiKey,omitempty"`
+	CodeBuddyAPIKeyConfigured    bool       `json:"codeBuddyApiKeyConfigured,omitempty"`
+	CodeBuddyInternetEnvironment string     `json:"codeBuddyInternetEnvironment,omitempty"`
+	CodeBuddyModels              []CLIModel `json:"codeBuddyModels,omitempty"`
+	CreatedAt                    time.Time  `json:"createdAt"`
+	UpdatedAt                    time.Time  `json:"updatedAt"`
 }
 
 const PlatformRoleAdmin = "admin"
@@ -283,6 +284,7 @@ type AgentCLICredential struct {
 	BaseURL          string     `json:"baseUrl,omitempty"`
 	Protocol         string     `json:"protocol,omitempty"`
 	Models           []CLIModel `json:"models,omitempty"`
+	ModelsCustomized bool       `json:"modelsCustomized,omitempty"` // Cursor: preserve explicit edits across discovery.
 }
 
 // Wire protocols an agent CLI can speak to a user Base URL.

@@ -14,6 +14,8 @@ defaults:
 
 jobs:
   validate:
+    # ubuntu-latest is Ubuntu 26.04, and actions/setup-python has no 3.8
+    # build for it; each cell pins its runner image via matrix.runner.
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
