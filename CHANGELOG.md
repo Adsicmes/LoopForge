@@ -2,10 +2,28 @@
 
 Platform releases use `vX.Y.Z` tags and publish this fork's image as `ghcr.io/adsicmes/loopforge`. LoopForge Local packages use `local-vX.Y.Z` tags and are published by manually running the `release-local` workflow.
 
-## Unreleased
+## 0.4.0 — 上游 v0.4.0 摘入：凭据、外部写审批与 GitHub SSH 信任
 
-- **github.com 内置 SSH 主机信任**：平台直接信任 GitHub 官方公布的 `github.com:22` 与 `ssh.github.com:443` 主机公钥，无需管理员添加条目；管理员快照中的 `@revoked` 条目仍可否决内置 pin（采用上游 48cdf0c 行为 A2）。
-- **原生命令外部写审批**：写入沙箱外系统的原生命令（推送、发 PR、发布包等）按对话审批模式执行，「帮我批准」由独立模型审查，「请求批准」等发言人批准（移植上游 eb2b8e8）。
+这一版把上游 v0.4.0 中对本 fork 有价值的部分摘进来（16 个提交直接移植，4 组冲突手工合并），保留本 fork 的 OpenCode 2 默认执行器、平台模式权限层和运行凭据设计。
+
+- **带凭据认证的 MCP server**：MCP server 可以绑定平台保存的凭据，由平台在调用时注入，server 配置里不再出现明文 token。
+- **SOP 节点可以按需取平台凭据**：节点声明需要哪些平台凭据，运行时作为环境变量注入，供脚本调用外部服务。
+- **自托管部署的自定义运行凭据**：一次运行可以使用提交者本人的 Git 凭据和 SSH 主机密钥，而不是控制面的全局凭据；Git SSH 命令按这次运行绑定的主机密钥校验。
+- **后台 AI 任务改用保存者的 key**：定时任务和后台 AI 任务（提交标题、评审、报告等）使用保存者的 key，缺失时回退到平台共享 key——OpenCode 回退到共享 OpenCode 凭据，CodeBuddy 回退到共享 CodeBuddy key，其他 CLI 只用个人凭据。
+- **外部 MCP 写请求按对话审批模式处理**：完全权限直接执行，「帮我批准」交给独立模型审查，「请求批准」等本轮发言人在卡片上批准；`tools/call` 收到 `notifications/cancelled` 时随之取消，Kimi MCP 的 `toolTimeoutMs` 为 600000；审批卡片按字段名和值对密钥脱敏。
+- **原生命令的外部写走同一套模式**：写沙箱外系统的原生命令（push、发 PR、发布包等）与外部 MCP 写一样按审批模式处理；沙箱内的文件读写和命令在任何模式下都直接执行。
+- **github.com 内置 SSH 主机信任**：平台直接信任 GitHub 公布的 `github.com:22` 与 `ssh.github.com:443` 主机公钥，不需要管理员添加条目，管理员列表里标为「内置信任」。快照仍然逐行 pin，`@revoked` 条目可以否决内置 pin（只压制同端点同公钥），其他主机依旧需要管理员条目。
+- **内置代码交付 SOP 增加「发起 MR」节点**：运行会提交并推送工作分支、开 MR/PR，再进入交付汇总，因此运行责任人的 Git 凭据需要推送权限。既有部署按 `docs/deployment.md` 手动执行 `migrations/039_generic_sop_mr_node.sql`。
+- **工作区与快照**：可以从运行详情恢复被回收的工作区；快照恢复覆盖空目录，并保留 git 跟踪但被排除的路径。
+- **需求可以直接创建**并在对话里澄清；澄清开始前会等草稿保存完成再读取，不再读到旧内容。
+- **超长 prompt 走 stdin**，不再拼进 argv 撞参数长度上限。
+- **每轮对话都安装共享技能**，新装的技能不必等下一次生成才生效。
+- **子代理显示实际运行的模型**，包含完整模型名和运行中与已完成的区别。
+- **对话体验**：切换对话时保留排队消息；@ 提到的 issue 在一轮里保留；首页去掉一键 demo 入口，保留三项起步模板；图片附件去掉文件名条，文件名放在悬停提示里。
+- **LoopForge Local 标记为 legacy**。
+- **CI**：platform 的 core job 恢复 `go test`（跳过 5 个需要真实 Chromium 的测试），构建和行为回归在同一次运行里暴露。
+
+升级说明：要把「发起 MR」节点加进既有部署的内置后端、前端和缺陷修复 SOP，手动执行 `migrations/039_generic_sop_mr_node.sql`；安装器和 `./start.sh pull` 不会执行它，脚本只改仍是出厂内容的部分，可以重复执行，从模板复制出来的项目 SOP 不受影响。`ssh_trusted_hosts` 表由启动时的 AutoMigrate 补齐，`038_ssh_trusted_hosts.sql` 是同一份 DDL 的显式副本，按需手动执行。
 
 ## 0.3.10-rc.3 — Platform-mode Code Mode repair (prerelease)
 
