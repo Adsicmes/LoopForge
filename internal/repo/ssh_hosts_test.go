@@ -148,3 +148,41 @@ func TestSSHHostsKeyRotation(t *testing.T) {
 		t.Fatalf("old=%q new=%q err=%v", snapshot, updated, err)
 	}
 }
+
+// github.com gets its builtin pins without an administrator entry; revoking
+// the builtin ed25519 key alone still leaves the other builtin keys trusted
+// (first-wins per host key), and hosts without builtin pins fail closed.
+func TestSSHHostSnapshotBuiltinGitHub(t *testing.T) {
+	s, err := OpenTest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	trust, err := s.SSHHostSnapshot([]string{"git@github.com:org/repo.git"})
+	if err != nil || !strings.Contains(string(trust), "github.com ssh-ed25519 ") {
+		t.Fatalf("builtin github trust=%q err=%v", trust, err)
+	}
+	fallback, err := s.SSHHostSnapshot([]string{"ssh://git@ssh.github.com:443/org/repo.git"})
+	if err != nil || !strings.Contains(string(fallback), "[ssh.github.com]:443 ssh-ed25519 ") {
+		t.Fatalf("builtin fallback trust=%q err=%v", fallback, err)
+	}
+	if _, err := s.SSHHostSnapshot([]string{"git@git.example:team/app.git"}); err == nil {
+		t.Fatal("a host without builtin pins must still fail closed")
+	}
+	_, _, githubKey, _, _, err := ssh.ParseKnownHosts([]byte("github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	revoked := gitwork.KnownHostCandidate{Host: "github.com", Port: 22, Marker: "revoked", PublicKey: strings.TrimSpace(string(ssh.MarshalAuthorizedKey(githubKey)))}
+	if err := s.PutSSHHosts([]gitwork.KnownHostCandidate{revoked}); err != nil {
+		t.Fatal(err)
+	}
+	trust, err = s.SSHHostSnapshot([]string{"git@github.com:org/repo.git"})
+	if err != nil || !strings.Contains(string(trust), "@revoked github.com ssh-ed25519 ") || strings.Count(string(trust), "github.com ssh-ed25519 ") != 1 {
+		t.Fatalf("revoked builtin ed25519 key: trust=%q err=%v", trust, err)
+	}
+	trust, err = s.SSHHostSnapshot([]string{"git@github.com:org/repo.git", "ssh://git@ssh.github.com:443/org/repo.git"})
+	if err != nil || !strings.Contains(string(trust), "[ssh.github.com]:443 ssh-ed25519 ") {
+		t.Fatalf("revocation must not affect another endpoint: trust=%q err=%v", trust, err)
+	}
+}

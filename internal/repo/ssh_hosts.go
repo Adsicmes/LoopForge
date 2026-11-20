@@ -1,14 +1,17 @@
 package repo
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"fmt"
 	"net"
+	"sort"
 	"strconv"
 	"strings"
 
 	"agentflow/internal/gitwork"
 
+	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -72,6 +75,10 @@ func (r *SSHHostsRepo) DeleteSSHHost(id uint64) error {
 }
 
 // SSHHostSnapshot selects only exact endpoints and fails closed on read errors.
+// Endpoints trusted by the builtin pins (github.com, upstream 48cdf0c A2) get
+// their builtin lines without an administrator entry; a revoked snapshot entry
+// suppresses exactly the matching builtin key while the other builtin keys of
+// the same host stay in the snapshot (sshHostKeys decides per host).
 func (r *SSHHostsRepo) SSHHostSnapshot(remotes []string) ([]byte, error) {
 	allowed := make(map[string]bool)
 	for _, raw := range remotes {
@@ -89,10 +96,14 @@ func (r *SSHHostsRepo) SSHHostSnapshot(remotes []string) ([]byte, error) {
 		return nil, fmt.Errorf("读取 SSH 可信主机失败")
 	}
 	var out strings.Builder
+	revoked := map[string]bool{}
 	for _, row := range rows {
 		endpoint := net.JoinHostPort(row.Host, strconv.Itoa(row.Port))
 		if _, ok := allowed[endpoint]; !ok {
 			continue
+		}
+		if row.Marker == "revoked" {
+			revoked[strings.ToLower(knownhosts.Normalize(endpoint))+"\x00"+row.PublicKey] = true
 		}
 		if row.Marker != "" {
 			fmt.Fprintf(&out, "@%s ", row.Marker)
@@ -102,9 +113,34 @@ func (r *SSHHostsRepo) SSHHostSnapshot(remotes []string) ([]byte, error) {
 			allowed[endpoint] = true
 		}
 	}
+	endpoints := make([]string, 0, len(allowed))
 	for endpoint, ok := range allowed {
-		if !ok {
-			return nil, fmt.Errorf("SSH 主机 %s 未获信任，请平台管理员核对并添加公钥", endpoint)
+		if ok {
+			continue
+		}
+		endpoints = append(endpoints, knownhosts.Normalize(endpoint))
+	}
+	if len(endpoints) > 0 {
+		sort.Strings(endpoints)
+		lines, covered := gitwork.BuiltinKnownHostsFor(endpoints)
+		// A builtin line whose key a snapshot entry revoked is dropped; the
+		// administrator's line above already decides that host key.
+		for _, line := range bytes.Split(bytes.TrimRight(lines, "\n"), []byte("\n")) {
+			marker, hosts, key, _, _, err := ssh.ParseKnownHosts(line)
+			if err != nil || marker == "revoked" || len(hosts) != 1 {
+				continue
+			}
+			publicKey := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(key)))
+			if revoked[strings.ToLower(hosts[0])+"\x00"+publicKey] {
+				continue
+			}
+			out.Write(line)
+			out.WriteByte('\n')
+		}
+		for _, endpoint := range endpoints {
+			if !covered[endpoint] {
+				return nil, fmt.Errorf("SSH 主机 %s 未获信任，请平台管理员核对并添加公钥", endpoint)
+			}
 		}
 	}
 	return []byte(out.String()), nil

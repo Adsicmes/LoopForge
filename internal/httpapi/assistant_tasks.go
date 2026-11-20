@@ -236,9 +236,11 @@ func (h *assistantHandlers) executeAssistantTask(ctx context.Context, user domai
 		return errors.New(msg)
 	}
 
-	// The task's model picks the CLI. OpenCode may use the platform shared
-	// credential; other CLIs need the owner's own key. An empty model follows
-	// the platform's primary executor.
+	// The task's model picks the CLI; a scheduled run needs a key for it (the
+	// runner's own, or the shared key already substituted by scheduleKeyUser,
+	// checked before a conversation is opened. OpenCode may use the platform
+	// shared credential; other CLIs need the runner's own key. An empty model
+	// follows the platform's primary executor.
 	engine, _ := assistantModelEngine(task.Model)
 	if strings.TrimSpace(task.Model) == "" {
 		engine = assistantEngineOpenCode

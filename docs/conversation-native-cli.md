@@ -12,11 +12,25 @@
 
 ZCode 恢复时通过官方会话协议应用当前选择的模型，再启动原生 prompt 命令；保留同一 session 和历史，不直接改写 CLI 数据库。协议不兼容或模型不可用时中止，保留日志供重试。
 
-Docker 工作区内的原生文件、补丁和命令在三种审批模式下均直接执行，不再进行逐项人工确认或独立模型审查。「请求批准 / 帮我批准 / 完全权限」只控制平台与外部操作，例如平台配置写入、提交 MR 和外部 MCP 写入。开启工作区与切回平台模式本身不触发独立审批。各 CLI 的 hook 只检查本轮是否仍有效及平台模式限制；取消、CLI 退出或模式交接后拒绝旧阶段调用。平台网关连续 120 秒不可用时 hook 拒绝本次操作，不等待 CLI 自身的 hook 超时（部分 CLI 超时即放行）；Kimi 使用其原生 hook 配置，hook 的非 2 退出码统一转为拒绝。配置与 hook 文件在 Docker 中只读挂载。
+Docker 工作区内的原生文件、补丁和命令直接执行；写入沙箱外系统的原生命令（git push、gh 写操作、gh api 写请求、curl/wget 写请求、发布软件包、推送镜像、kubectl/helm/terraform 变更，见 `assistant_native_external.go` 分类器）按当前审批模式处理。「请求批准 / 帮我批准 / 完全权限」控制平台写入、这些外部写入命令与外部 MCP 写入。开启工作区与切回平台模式本身不触发独立审批。各 CLI 的 hook 只检查本轮是否仍有效及平台模式限制；取消、CLI 退出或模式交接后拒绝旧阶段调用。平台网关连续 120 秒不可用时 hook 拒绝本次操作，不等待 CLI 自身的 hook 超时（部分 CLI 超时即放行）；Kimi 使用其原生 hook 配置，hook 的非 2 退出码统一转为拒绝。配置与 hook 文件在 Docker 中只读挂载。
 
 Runner 需要 0.10.1 或以上版本，该版本支持取消后台导出并释放工作区锁。执行机器使用 Codex ChatGPT 订阅时，Runner 需 0.11.0 或以上；订阅请求经平台网关转发，机器不持有 `auth.json` 或 refresh token。Docker 镜像优先使用已安装的 CLI；支持官方安装器的 CLI 缺失时自动安装。ZCode 没有独立 npm 包，须在执行机器及工作区镜像内预装官方 CLI 并加入 PATH，缺失时明确报错。原生工具调用围栏与进程生命周期管理依赖 Python3。每个 Docker 会话阶段使用独立的 Linux 子进程收养进程，结束或取消时回收其全部后代，包含另建进程组的原生命令；不影响容器里的其他命令。平台会在启动前检查依赖，固定安装步骤以容器 root 用户在 `/` 中运行，实际 CLI 保留工作区的容器用户；无法准备时中止，不降级绕过调用围栏。建议在受控工作区镜像中预安装 CLI 和依赖。
 
 原生会话的工具回调在执行机器上中继。宿主进程使用 Docker host gateway；通过 docker.sock 管理工作区的容器进程自动识别自身容器网络，工作区加入相同网络并访问该地址。自定义路由可通过 `AGENTFLOW_CONVERSATION_RELAY_HOST` 和 `AGENTFLOW_CONVERSATION_DOCKER_NETWORK` 显式指定工作区能访问的执行进程地址与 Docker 网络。会话目录会以相同路径挂进工作区，而 docker.sock 背后的 Docker 守护进程按自己所在主机解析挂载源，因此容器内的平台进程须把 `AGENTFLOW_CONVERSATION_DIR` 设在与宿主机同路径挂载的目录中；`compose.yaml` 将其设为 `${LOOPFORGE_DATA_DIR}/conversations`。Runner 不读该变量，原生会话目录固定在其工作区根目录的 `.conversations` 下，容器内运行 Runner 时须同路径挂载该工作区目录。未设置时会话目录位于 `AGENTFLOW_ASSISTANT_SESSION_DIR` 下，该目录在命名卷里时打开工作区会报 `mkdirat ... read-only file system`。附件等按用户保存的助手数据仍在 `AGENTFLOW_ASSISTANT_SESSION_DIR`，不挂进工作区。Docker 工作区需要工作区脚本视图辅助程序：部署时设置 `AGENTFLOW_GATE_MCP_BINARY`（指向已构建的辅助二进制）或 `AGENTFLOW_SOURCE_ROOT`（源码目录，按需构建），两者都缺失时打开工作区会报 `script view helper unavailable`。
+
+批准状态记在本轮 generation 的 payload 里（`nativeApprovals`），任一 API 实例都能读写，不新增表。卡片通过 `GET /api/assistant/sessions/{id}/native-approvals` 每秒轮询，决定走 `POST …/native-approvals/{approvalId}`。平台配置写入沿用草稿审批：请求批准下提交草稿由用户确认，帮我批准经独立审查，完全权限直接执行。外部 MCP 写入指对话选中的、经平台网关代理的第三方 MCP 服务器（如 TAPD、自定义 MCP）的写工具，在 `agent_tool_mcp.go` 的网关分发处按读写分类处理：完全权限直接执行；帮我批准经独立审查，未通过即拒绝；请求批准下在同一轮显示「批准外部写入」卡片，包含 MCP 服务、工具和脱敏后的实际参数。本轮发言人批准时，网关执行该次调用并把结果返回给 CLI。拒绝、停止、切换模式或调用超时后，待批准的写入失效。系统最多等 9 分钟，CLI 可提前结束等待：CLI 断开请求，或按 MCP 规范发送 `notifications/cancelled`（例如它自己的工具调用超时），网关都会取消该次调用，卡片随之失效，之后再批准也不会写入；CLI 重试会生成新的卡片。Kimi 的 MCP 工具超时默认 60 秒，平台写入的 `mcp.json` 为每个服务配置 `toolTimeoutMs: 600000`（OpenCode、DeepSeek 同为 600 秒）。卡片参数按字段名（归一化后匹配 `*token`、`*secret`、`*password`、`*apikey`、`*credential(s)`、`authorization`、`cookie` 等后缀，`max_tokens` 这类计数不算）和常见密钥格式（Bearer、GitHub/GitLab/Slack/OpenAI/AWS 密钥、JWT、PEM 私钥）脱敏；`headers`、`credentials` 等对象只隐藏其中的密钥字段，其余内容照常显示，标题会注明「N 个字段已隐藏」及字段路径。远程执行机器需要支持取消单次 MCP 请求的 Runner。原生命令的写入沙箱外系统行为与外部 MCP 写入同模式：完全权限直接执行；帮我批准由 `s.nativeReview` 起后台 AI 审查（`nativeReviewBudget` 90 秒，hook 每 10 秒轮询一次结论）；请求批准创建同样的发言人卡片。推送主分支、强推和合并 PR 另由提示词约束为只在用户明确要求时做。开启工作区与切回平台模式本身不触发审批。各 CLI 的 hook 同时检查本轮是否仍有效及平台模式限制；取消、CLI 退出或模式交接后拒绝旧阶段调用。平台网关连续 120 秒不可用时 hook 拒绝本次操作（等待批准期间网关可达，不计入），不等待 CLI 自身的 hook 超时（部分 CLI 超时即放行）；Kimi 使用其原生 hook 配置，hook 的非 2 退出码统一转为拒绝。配置与 hook 文件在 Docker、bwrap 中只读挂载，在 macOS seatbelt 中同样保持只读保护。
+
+个人执行机器可为 Codex 和 Claude Code 选择「账号登录」。Runner 0.10.2 起，对话按所绑定机器的认证设置启动 CLI。在运行 Runner 的系统账户下登录后，Codex 读取 `CODEX_HOME` 下的 `auth.json`，Claude Code 读取 `CLAUDE_CONFIG_DIR` 下的 `.credentials.json` 或 Runner 环境中的 `CLAUDE_CODE_OAUTH_TOKEN`。登录状态仅在该执行机器上使用。每次运行把登录文件复制进隔离的 CLI home，结束后删除；CLI 在运行中刷新了 token（Codex、Claude Code 的 refresh token 会轮换）时，删除前按内容做比较并交换写回 Runner 账户的原文件：原文件在此期间未被改动、且刷新后的文件仍是同一账号（顶层字段一致，Codex 的 `tokens.account_id` 相同）才写回，否则保留宿主机上的版本。仍需直接通过 CLI 管理登录和续期。仅存于系统钥匙串的登录需要改用 CLI 支持的文件式登录或 API Key。设置页在 CLI 行的「更多」菜单提供「测试」，按当前认证方式在该机器上发送一次短模型请求。
+
+SOP 的 native 和 Docker 沙箱也使用所选 Runner 的认证设置。每次 CLI 调用都在节点的独立 HOME 中使用临时登录文件，结束后清理该文件，会话可在同一节点续接。
+
+Runner 0.10.2 起，机器卡片可检查并手动安装平台提供的 Runner 构建。更新在机器空闲时应用。自行安装的 CLI 如提供非交互更新命令，可以在 CLI 菜单中直接执行更新。托管安装使用托管更新。如果 CLI 无法自更新，界面会提示按原安装方式更新。
+
+CLI 菜单中的「模型列表」与个人配置共用当前用户的模型目录。可以获取、筛选、添加、重命名和排序模型。保存后，AI 对话和角色编辑器使用该目录。API Key 模式通过个人配置里的 Key 与服务地址获取模型，留空地址时使用 CLI 的官方服务。Codex 和 Claude Code 的账号登录模式从所选机器查询，需要 Runner 0.10.2 或以上版本。
+
+其他 CLI 使用个人配置中保存的 API Key。Antigravity 将本机登录保存在系统凭据库中，LoopForge 沙箱目前无法复用。请在个人配置中填写 Gemini API Key，用量按 Gemini API 单独计费。详见 [Antigravity CLI 认证](https://antigravity.google/docs/install?tab=cli)和 [Gemini API 计费](https://ai.google.dev/gemini-api/docs/billing)。
+
+ZCode 可通过 GLM Coding Plan 的 API Key 和套餐专用端点使用订阅额度。Start Plan 的额度需要登录 ZCode 账号，无法通过 API Key 使用。详见 [ZCode 模型配置](https://zcode.z.ai/cn/docs/configuration)。
 
 模式交接时，交接工具要求模型只回复一句「好的。」再结束旧阶段，交接之后的展示由平台隐藏；不要求“不输出任何内容”，否则模型可能只产出推理、没有正文的回合，该回合写入原生日志后，续接时会被模型服务拒绝（如 `the conversation must end with a user message`）。交接工具成功后，旧阶段即使未输出 `type=result` 或异常退出，也继续完成交接。续接原生会话时，如果原生日志缺失，或模型服务在本阶段产生任何输出或工具调用之前就拒绝了续接（400/422、会话结构无效、无结果退出），平台用完整对话上下文新建一次原生会话重试；已有输出或工具调用的中断，以及鉴权、限流、额度、网络、执行机器不可用等原因，仍续接原会话或直接报错，不重复执行副作用。
 

@@ -491,7 +491,11 @@ func (e *Engine) executeNode(ctx context.Context, runID string, wf domain.Workfl
 	// (执行器) it is dispatched to that machine so gates run next to the CLI
 	// output in the runner-side task workspace.
 	gateExec := func(command string, target executionTarget, gateSink runtime.EventSink) (string, error) {
-		return sb.Exec(ctx, runtime.CommandSpec{Argv: []string{"sh", "-lc", bindExecutionTarget(command, target)}, Provider: "verification", CredentialBindings: []runtime.CredentialBinding{runtime.BindGit, runtime.BindMCP}}, gateSink)
+		spec, err := runtime.CommandSpecWithCredentialEnv(runtime.CommandSpec{Argv: []string{"sh", "-lc", bindExecutionTarget(command, target)}, Provider: "verification", CredentialBindings: []runtime.CredentialBinding{runtime.BindGit, runtime.BindMCP}}, node.CredentialEnv, sb.credentialSnapshot())
+		if err != nil {
+			return "", err
+		}
+		return sb.Exec(ctx, spec, gateSink)
 	}
 	current, _ = e.repo.RunState(runID)
 	gitCredentials := sb.credentialSnapshot()
@@ -655,7 +659,11 @@ func (e *Engine) executeNode(ctx context.Context, runID string, wf domain.Workfl
 				if err := runtime.ProvisionMCPAssets(ctx, sb, sb.Workspace(), scriptAssets, targetSink); err != nil {
 					return "", err
 				}
-				return sb.Exec(ctx, runtime.CommandSpec{Argv: []string{"sh", "-lc", bound}, Provider: "script", CredentialBindings: []runtime.CredentialBinding{runtime.BindGit, runtime.BindMCP}}, targetSink)
+				scriptSpec, err := runtime.CommandSpecWithCredentialEnv(runtime.CommandSpec{Argv: []string{"sh", "-lc", bound}, Provider: "script", CredentialBindings: []runtime.CredentialBinding{runtime.BindGit, runtime.BindMCP}}, effectiveNode.CredentialEnv, sb.credentialSnapshot())
+				if err != nil {
+					return "", err
+				}
+				return sb.Exec(ctx, scriptSpec, targetSink)
 			})
 			if execMachine := e.defaultExecutionRunner(current); execMachine != "" {
 				workspace := runnerWorkspaceRel(current, node.ID)
@@ -804,6 +812,10 @@ func (e *Engine) executeNode(ctx context.Context, runID string, wf domain.Workfl
 			repositories := current.RepositoryContexts()
 			boundAssets, skipped, bindErr := runtime.PrepareMCPServers(assets, runtime.MCPTarget{
 				GitToken: gitTok, RequireCredentials: true,
+				// Credential-authenticated MCP servers resolve their Bearer
+				// token from the responsible user's extra credentials here —
+				// the agent node is the primary consumer of market MCPs.
+				ExtraCredentials:    gitCredentials.Extra,
 				SSHRepositoriesOnly: len(repositories) > 0 && len(sshRepositoryURLs(repositories)) == len(repositories),
 			})
 			for _, warning := range skipped {
@@ -943,6 +955,32 @@ func (e *Engine) executeNode(ctx context.Context, runID string, wf domain.Workfl
 			for _, candidate := range gates {
 				gate := candidate.gate
 				if strings.EqualFold(gate.Mode, "manual") || strings.EqualFold(gate.Mode, "submit") {
+					continue
+				}
+				if strings.EqualFold(gate.Mode, domain.VerificationModeMR) {
+					live, _ := e.repo.RunState(runID)
+					mrErr := e.verifyRunMRs(live, gitTok, func(rc domain.RepositoryContext) (pushedWork, error) {
+						target := executionTarget{Scope: domain.ExecutionScopeRepositories, Repository: &rc}
+						out, execErr := gateExec(mrPendingCommand, target, executionTargetSink(func(event domain.TelemetryEvent) {
+							event.Category = "verification"
+							sink(event)
+						}, target))
+						if execErr != nil {
+							return pushedWork{}, execErr
+						}
+						return parseMRPending(out)
+					})
+					if mrErr != nil {
+						e.observe(runID, node.ID, domain.TelemetryEvent{Category: "verification", Name: "gate.mr.failed", Phase: "finish", Level: "error", Message: "门禁未通过：" + gate.Name, Attributes: map[string]any{"gateId": gate.ID, "gateName": gate.Name, "iteration": iteration, "detail": mrErr.Error()}})
+						err = fmt.Errorf("verification %s: %w", gate.Name, mrErr)
+						failedAction = candidate.onFailure
+						if errors.Is(mrErr, errMRUnverifiable) {
+							failedAction = "human"
+						}
+						gateRejected = failedAction == "reject"
+						break
+					}
+					e.observe(runID, node.ID, domain.TelemetryEvent{Category: "verification", Name: "gate.mr.passed", Phase: "finish", Message: "门禁通过：" + gate.Name, Attributes: map[string]any{"gateId": gate.ID, "gateName": gate.Name, "iteration": iteration}})
 					continue
 				}
 				gateCmd := joinGateCommands(gate.Commands, effectiveNode.ArtifactOutputs)

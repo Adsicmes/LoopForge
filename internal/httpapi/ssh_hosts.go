@@ -38,7 +38,10 @@ func (h *sshHostsHandlers) list(c *gin.Context) {
 		c.JSON(500, gin.H{"error": "读取可信主机失败"})
 		return
 	}
-	c.JSON(200, gin.H{"hosts": items})
+	// github.com and ssh.github.com:443 are trusted by the platform's builtin
+	// pins (upstream 48cdf0c A2) even without a stored entry; the UI shows the
+	// note instead of asking the administrator to add them.
+	c.JSON(200, gin.H{"hosts": items, "builtin": gitwork.BuiltinTrustEndpoints()})
 }
 
 func (h *sshHostsHandlers) preview(c *gin.Context) {

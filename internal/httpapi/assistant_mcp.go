@@ -321,6 +321,10 @@ func assistantRejectForeignProjectValue(projectID string, value map[string]any) 
 }
 
 func (h *assistantHandlers) callAssistantMCP(user domain.User, projectID string, call assistantMCPCall) (string, error) {
+	return h.callAssistantMCPContext(context.Background(), user, projectID, call)
+}
+
+func (h *assistantHandlers) callAssistantMCPContext(ctx context.Context, user domain.User, projectID string, call assistantMCPCall) (string, error) {
 	if h == nil || h.repo == nil {
 		return "", fmt.Errorf("未连接数据源")
 	}
@@ -349,14 +353,14 @@ func (h *assistantHandlers) callAssistantMCP(user domain.User, projectID string,
 	client := mcpclient.New(bound.URL, bound.Headers).WithTimeout(assistantMCPCallTimeout)
 	tool := strings.TrimSpace(call.Tool)
 	if tool == "" || tool == "tools/list" {
-		tools, err := client.ListTools()
+		tools, err := client.ListToolsContext(ctx)
 		if err != nil {
 			return "", fmt.Errorf("列出 %s 工具失败: %w", server.Name, err)
 		}
 		raw, _ := json.Marshal(ginH{"server": server.ID, "name": server.Name, "tools": tools})
 		return redactAssistantSecrets(string(raw), user), nil
 	}
-	text, err := client.CallTool(tool, call.Arguments)
+	text, err := client.CallToolContext(ctx, tool, call.Arguments)
 	if err != nil {
 		return "", err
 	}
@@ -382,6 +386,16 @@ func bindAssistantMCP(server domain.MCPServerDefinition, user domain.User) (doma
 	bundle, githubErr = runtime.BindGitHubMCPHeaders(bundle, user.GitToken, true)
 	if githubErr != nil {
 		return domain.MCPServerDefinition{}, githubErr
+	}
+	// Credential-authenticated MCP servers resolve the responsible user's
+	// saved credential (RunCredentials.Extra) here — this entry point serves
+	// both tool discovery and actual calls.
+	bundle, _, credErr := runtime.BindCredentialMCPHeaders(bundle, runtime.ExtraRunCredentials(user.ID), true)
+	if credErr != nil {
+		return domain.MCPServerDefinition{}, credErr
+	}
+	if len(bundle.MCPServers) == 0 {
+		return domain.MCPServerDefinition{}, fmt.Errorf("MCP %s 未绑定任何凭证", server.Name)
 	}
 	server = bundle.MCPServers[0]
 	headers, err := runtime.ResolveMCPHeaders(server)

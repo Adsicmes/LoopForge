@@ -51,12 +51,28 @@ func parseSSHIdentity(value string) (any, ssh.Signer, error) {
 	return nil, nil, errors.New("Git SSH 私钥格式无效，请粘贴完整的 OpenSSH 或 PEM 私钥")
 }
 
+// builtinKnownHosts pins GitHub's published SSH host keys (api.github.com/meta,
+// fingerprints SHA256:+DiY3wvvV6TuJJhbpZisF/zLDA0zPMSvHdkr4UvCOqU ed25519,
+// p2QAMXNIC1TJYWeIOttrVc98/R1BUFWu3/LiyKgUfQM ecdsa, uNiVztksCsDhcc0u9e8BujQXVUpKZIDTMczCvj3tD2s rsa),
+// for github.com:22 and the ssh.github.com:443 fallback. Other hosts still
+// need an administrator-trusted entry; a snapshot that mentions a host
+// overrides these pins for that host (see sshHostKeys).
+const builtinKnownHosts = `github.com,[ssh.github.com]:443 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl
+github.com,[ssh.github.com]:443 ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBEmKSENjQEezOmxkZMy7opKgwFB9nkt5YRrYMjNuG5N87uRgg6CLrbo5wAdT/y6v0mKV0U2w0WZ2YB/++Tpockg=
+github.com,[ssh.github.com]:443 ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt+VTTvDP6mHBL9j1aNUkY4Ue1gvwnGLVlOhGeYrnZaMgRK6+PKCUXaDbC7qtbW8gIkhL7aGCsOr/C56SJMy/BCZfxd1nWzAOxSDPgVsmerOBYfNqltV9/hWCqBywINIR+5dIg6JTJ72pcEpEjcYgXkE2YEFXV1JHnsKgbLWNlhScqb2UmyRkQyytRLtL+38TGxkxCflmO+5Z8CSSNY7GidjMIZ7Q4zMjA2n1nGrlTDkzwDCsw+wqFPGQA179cnfGWOWRVruj16z6XyvxvjJwbz0wQZ75XK5tKSb7FNyeIEs4TT4jk+S4dhPeAUC5y+bDYirYgM4GC7uEnztnZyaVWQ7B381AK4Qdrwt51ZqExKbQpTUNn+EjqoTwvqNj4kqx5QUCI0ThS/YkOxJCXmPUWZbhjpCg56i+2aB6CmK2JGhn57K5mj0MNdBXA4/WnwH6XoPWJzK5Nyu2zB3nAZp+S5hpQs+p1vN1/wsjk=
+`
+
 func sshHostKeys(remotes []SSHRemote, content []byte) ([]byte, error) {
+	// The administrator snapshot decides every host it mentions: its lines
+	// are pinned verbatim, and the builtin pins (upstream 48cdf0c, A2) only
+	// cover hosts the snapshot does not mention, so a snapshot @revoked
+	// entry keeps its host untrusted even when it names just one key.
 	allowed := make(map[string]bool, len(remotes))
 	for _, remote := range remotes {
 		allowed[knownhosts.Normalize(net.JoinHostPort(remote.Host, remote.Port))] = false
 	}
 	var pinned bytes.Buffer
+	decided := map[string]bool{}
 	for _, line := range bytes.Split(content, []byte("\n")) {
 		marker, hosts, key, _, _, err := ssh.ParseKnownHosts(line)
 		if err != nil || (marker != "" && marker != "revoked" && marker != "cert-authority") {
@@ -67,6 +83,7 @@ func sshHostKeys(remotes []SSHRemote, content []byte) ([]byte, error) {
 			if _, ok := allowed[host]; !ok {
 				continue
 			}
+			decided[host] = true
 			if marker != "" {
 				fmt.Fprintf(&pinned, "@%s ", marker)
 			}
@@ -74,6 +91,20 @@ func sshHostKeys(remotes []SSHRemote, content []byte) ([]byte, error) {
 			if marker != "revoked" {
 				allowed[host] = true
 			}
+		}
+	}
+	for _, line := range bytes.Split([]byte(builtinKnownHosts), []byte("\n")) {
+		marker, hosts, key, _, _, err := ssh.ParseKnownHosts(line)
+		if err != nil || (marker != "" && marker != "revoked" && marker != "cert-authority") {
+			continue
+		}
+		for _, host := range hosts {
+			host = strings.ToLower(host)
+			if _, ok := allowed[host]; !ok || decided[host] {
+				continue
+			}
+			fmt.Fprintf(&pinned, "%s %s", host, ssh.MarshalAuthorizedKey(key))
+			allowed[host] = true
 		}
 	}
 	for _, remote := range remotes {
@@ -84,11 +115,52 @@ func sshHostKeys(remotes []SSHRemote, content []byte) ([]byte, error) {
 	return pinned.Bytes(), nil
 }
 
+// BuiltinKnownHostsFor returns the builtin known_hosts lines covering the
+// given endpoints ("host:port" or pre-normalized), plus which of them got at
+// least one line keyed by the original input, so a snapshot generator can
+// trust GitHub's published keys without an administrator entry.
+func BuiltinKnownHostsFor(endpoints []string) ([]byte, map[string]bool) {
+	covered := map[string]bool{}
+	normalized := make(map[string]string, len(endpoints))
+	for _, endpoint := range endpoints {
+		normalized[strings.ToLower(knownhosts.Normalize(endpoint))] = endpoint
+	}
+	var out bytes.Buffer
+	for _, line := range bytes.Split([]byte(builtinKnownHosts), []byte("\n")) {
+		marker, hosts, key, _, _, err := ssh.ParseKnownHosts(line)
+		if err != nil || (marker != "" && marker != "revoked" && marker != "cert-authority") {
+			continue
+		}
+		for _, host := range hosts {
+			host = strings.ToLower(host)
+			raw, ok := normalized[host]
+			if !ok {
+				continue
+			}
+			covered[raw] = true
+			if marker != "" {
+				fmt.Fprintf(&out, "@%s ", marker)
+			}
+			fmt.Fprintf(&out, "%s %s", host, ssh.MarshalAuthorizedKey(key))
+		}
+	}
+	return out.Bytes(), covered
+}
+
+// BuiltinTrustEndpoints lists the endpoints builtinKnownHosts already trusts,
+// so the admin UI can label GitHub hosts as trusted without an entry.
+func BuiltinTrustEndpoints() []string {
+	return []string{"github.com:22", "ssh.github.com:443"}
+}
+
 // sshBinding ties one repository remote to its host alias and private key.
 type sshBinding struct {
 	remote SSHRemote
 	alias  string
 	key    string
+	// match is the host name ssh is invoked with; the repository alias for a
+	// URL binding, the real host for a host binding.
+	match string
 }
 
 // bindSSHRemotes appends one Git URL rewrite per repository to environment in
@@ -138,6 +210,40 @@ func StartSSH(environment map[string]string, keys map[string]string, root, clien
 	if err != nil {
 		return nil, err
 	}
+	return startSSHSession(environment, bindings, remotes, root, clientRoot, trust...)
+}
+
+// StartSSHHosts gives every SSH remote on the given hosts the matching key,
+// without knowing the repositories in advance: an agent that clones
+// git@github.com:org/repo.git itself gets the requester's github.com key.
+// keys maps "host:port" endpoints (as stored per user) to private keys.
+func StartSSHHosts(environment map[string]string, keys map[string]string, root, clientRoot string) (func(), error) {
+	endpoints := make([]string, 0, len(keys))
+	for endpoint, key := range keys {
+		if strings.TrimSpace(key) != "" {
+			endpoints = append(endpoints, endpoint)
+		}
+	}
+	if len(endpoints) == 0 {
+		return func() {}, nil
+	}
+	sort.Strings(endpoints)
+	var bindings []sshBinding
+	var remotes []SSHRemote
+	for _, endpoint := range endpoints {
+		host, port, err := net.SplitHostPort(endpoint)
+		if err != nil {
+			return nil, fmt.Errorf("invalid Git SSH host %q", endpoint)
+		}
+		remote := SSHRemote{Host: strings.ToLower(host), Port: port}
+		sum := sha256.Sum256([]byte(remote.Endpoint()))
+		bindings = append(bindings, sshBinding{remote: remote, alias: fmt.Sprintf("lf-%x", sum[:16]), key: keys[endpoint], match: remote.Host})
+		remotes = append(remotes, remote)
+	}
+	return startSSHSession(environment, bindings, remotes, root, clientRoot)
+}
+
+func startSSHSession(environment map[string]string, bindings []sshBinding, remotes []SSHRemote, root, clientRoot string, trust ...[]byte) (func(), error) {
 	environment["GIT_SSH_VARIANT"] = "ssh"
 	if len(bindings) == 0 {
 		// Keep terminals usable for editing without using a host identity.
@@ -172,7 +278,7 @@ func StartSSH(environment map[string]string, keys map[string]string, root, clien
 		// Only the numeric port is expanded by Match exec. The host key is
 		// checked against the real endpoint, including a custom port.
 		fmt.Fprintf(&config, "Match originalhost %s exec \"test %%p = %s\"\n  HostName %s\n  HostKeyAlias %s\n  ProxyCommand none\n  IdentityAgent ./agent\n  IdentityFile ./%s.pub\n  UserKnownHostsFile ./known_hosts\n",
-			item.alias, r.Port, r.Host, knownhosts.Normalize(r.Endpoint()), item.alias)
+			item.matchHost(), r.Port, r.Host, knownhosts.Normalize(r.Endpoint()), item.alias)
 	}
 	config.WriteString(`Host *
   ProxyCommand /bin/false
@@ -219,6 +325,13 @@ func StartSSH(environment map[string]string, keys map[string]string, root, clien
 		stop()
 		_ = os.RemoveAll(dir)
 	}), nil
+}
+
+func (b sshBinding) matchHost() string {
+	if b.match != "" {
+		return b.match
+	}
+	return b.alias
 }
 
 func shellQuote(value string) string { return "'" + strings.ReplaceAll(value, "'", `'\''`) + "'" }
